@@ -1,3 +1,4 @@
+// whisperedcloud/job-portal/Job-portal-a4e6f3febf7c2af1c6b0ae3caeec2fd6d7878031/src/components/ui/file-upload.tsx
 
 import React, { useRef, useState } from 'react';
 import { Upload, File, X, CheckCircle, AlertCircle } from 'lucide-react';
