@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -15,11 +14,11 @@ import { toast } from 'sonner';
 
 // Predefined skills list
 const SKILL_OPTIONS = [
-  'JavaScript', 'TypeScript', 'React', 'Vue.js', 'Angular', 'Node.js', 'Python', 'Java', 
+  'JavaScript', 'TypeScript', 'React', 'Vue.js', 'Angular', 'Node.js', 'Python', 'Java',
   'C++', 'C#', 'PHP', 'Ruby', 'Go', 'Rust', 'Swift', 'Kotlin', 'HTML', 'CSS', 'SASS', 'LESS',
   'Bootstrap', 'Tailwind CSS', 'jQuery', 'Express.js', 'Next.js', 'Nuxt.js', 'Svelte',
-  'Django', 'Flask', 'Spring Boot', 'Laravel', 'Ruby on Rails', 'ASP.NET', 'MongoDB', 
-  'PostgreSQL', 'MySQL', 'SQLite', 'Redis', 'Elasticsearch', 'Firebase', 'AWS', 'Azure', 
+  'Django', 'Flask', 'Spring Boot', 'Laravel', 'Ruby on Rails', 'ASP.NET', 'MongoDB',
+  'PostgreSQL', 'MySQL', 'SQLite', 'Redis', 'Elasticsearch', 'Firebase', 'AWS', 'Azure',
   'Google Cloud', 'Docker', 'Kubernetes', 'Jenkins', 'Git', 'GitHub', 'GitLab', 'Jira',
   'Figma', 'Adobe XD', 'Photoshop', 'Illustrator', 'UI/UX Design', 'Graphic Design',
   'Project Management', 'Agile', 'Scrum', 'Digital Marketing', 'SEO', 'Content Writing',
@@ -36,12 +35,7 @@ const CandidateProfile = () => {
   // Form states for each section
   const [personalDetails, setPersonalDetails] = useState({
     name: '',
-    surname: '',
-    email: '',
     phone: '',
-    idPassport: '',
-    gender: '',
-    age: ''
   });
 
   const [locationData, setLocationData] = useState('');
@@ -100,9 +94,9 @@ const CandidateProfile = () => {
 
   const handleUpdatePersonalDetails = async () => {
     try {
-      await updateProfile({ 
-        name: personalDetails.name, 
-        phone: personalDetails.phone 
+      await updateProfile({
+        name: personalDetails.name,
+        phone: personalDetails.phone
       });
     } catch (error) {
       console.error('Error updating personal details:', error);
@@ -135,9 +129,9 @@ const CandidateProfile = () => {
 
   const handleUpdateLicense = async () => {
     try {
-      await updateProfile({ 
-        license_type: licenseData.type, 
-        license_number: licenseData.number 
+      await updateProfile({
+        license_type: licenseData.type,
+        license_number: licenseData.number
       });
     } catch (error) {
       console.error('Error updating license:', error);
@@ -222,26 +216,6 @@ const CandidateProfile = () => {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="surname">Surname</Label>
-                  <Input 
-                    id="surname" 
-                    value={personalDetails.surname}
-                    onChange={(e) => setPersonalDetails(prev => ({ ...prev, surname: e.target.value }))}
-                  />
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="email">Email address</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={personalDetails.email}
-                    onChange={(e) => setPersonalDetails(prev => ({ ...prev, email: e.target.value }))}
-                  />
-                </div>
-                <div>
                   <Label htmlFor="phone">Cellular Number</Label>
                   <Input
                     id="phone"
@@ -250,52 +224,6 @@ const CandidateProfile = () => {
                   />
                 </div>
               </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>ID / Passport Number</Label>
-                  <Input 
-                    value={personalDetails.idPassport}
-                    onChange={(e) => setPersonalDetails(prev => ({ ...prev, idPassport: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <Label>Gender</Label>
-                  <div className="flex gap-4 mt-2">
-                    <label className="flex items-center gap-2">
-                      <input 
-                        type="radio" 
-                        name="gender" 
-                        value="male"
-                        checked={personalDetails.gender === 'male'}
-                        onChange={(e) => setPersonalDetails(prev => ({ ...prev, gender: e.target.value }))}
-                      />
-                      Male
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <input 
-                        type="radio" 
-                        name="gender" 
-                        value="female"
-                        checked={personalDetails.gender === 'female'}
-                        onChange={(e) => setPersonalDetails(prev => ({ ...prev, gender: e.target.value }))}
-                      />
-                      Female
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <Label htmlFor="age">Age</Label>
-                <Input 
-                  id="age" 
-                  type="number"
-                  value={personalDetails.age}
-                  onChange={(e) => setPersonalDetails(prev => ({ ...prev, age: e.target.value }))}
-                />
-              </div>
-
               <Button onClick={handleUpdatePersonalDetails}>
                 Update Details
               </Button>
@@ -429,18 +357,18 @@ const CandidateProfile = () => {
               <div className="space-y-4">
                 <div>
                   <Label>License Type</Label>
-                  <Input 
+                  <Input
                     value={licenseData.type}
                     onChange={(e) => setLicenseData(prev => ({ ...prev, type: e.target.value }))}
-                    placeholder="Enter license type" 
+                    placeholder="Enter license type"
                   />
                 </div>
                 <div>
                   <Label>License Number</Label>
-                  <Input 
+                  <Input
                     value={licenseData.number}
                     onChange={(e) => setLicenseData(prev => ({ ...prev, number: e.target.value }))}
-                    placeholder="Enter license number" 
+                    placeholder="Enter license number"
                   />
                 </div>
                 <Button onClick={handleUpdateLicense}>

@@ -1,3 +1,4 @@
+// whisperedcloud/job-portal/Job-portal-a4e6f3febf7c2af1c6b0ae3caeec2fd6d7878031/src/hooks/useCandidate.ts
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
