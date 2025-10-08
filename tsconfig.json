@@ -11,9 +11,15 @@
     },
     "noImplicitAny": false,
     "noUnusedParameters": false,
+    "noUnusedLocals": false,
     "skipLibCheck": true,
     "allowJs": true,
-    "noUnusedLocals": false,
-    "strictNullChecks": false
+    "strictNullChecks": false,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "target": "ESNext",
+    "jsx": "react-jsx"
   }
 }

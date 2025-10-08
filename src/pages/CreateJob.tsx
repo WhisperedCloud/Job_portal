@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -12,31 +11,29 @@ import Navbar from '../components/Layout/Navbar';
 import Sidebar from '../components/Layout/Sidebar';
 import { useNavigate } from 'react-router-dom';
 import { X, Plus } from 'lucide-react';
+import { useRecruiter } from '@/hooks/useRecruiter';
 
 const CreateJob = () => {
   const { user } = useAuth();
+  const { createJob } = useRecruiter();
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [skills, setSkills] = useState<string[]>([]);
   const [currentSkill, setCurrentSkill] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const [formData, setFormData] = useState({
-    jobTitle: '',
-    employer: '',
-    website: '',
-    addressLine1: '',
-    addressLine2: '',
-    city: '',
-    state: '',
-    zipCode: '',
-    country: '',
+    title: '',
+    company_name: '',
     qualification: '',
-    experienceLevel: '',
-    noticePeriod: '',
-    jobDescription: '',
+    experience_level: '',
+    notice_period: '',
+    job_description: '',
     location: '',
-    salary: '',
-    employmentType: '',
+    job_type: '',
+    salary_range: '',
+    application_deadline: '',
+    contact_email: user?.email || '',
   });
 
   const handleInputChange = (field: string, value: string) => {
@@ -61,11 +58,33 @@ const CreateJob = () => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Handle form submission
-    console.log('Job posting data:', { ...formData, skills });
-    navigate('/jobs/posted');
+    setLoading(true);
+
+    const jobData = {
+      title: formData.title,
+      company_name: formData.company_name,
+      qualification: formData.qualification,
+      experience_level: formData.experience_level,
+      notice_period: formData.notice_period,
+      job_description: formData.job_description,
+      skills_required: skills,
+      location: formData.location,
+      job_type: formData.job_type,
+      salary_range: formData.salary_range,
+      application_deadline: formData.application_deadline,
+      contact_email: formData.contact_email,
+    };
+
+    try {
+      await createJob(jobData);
+      navigate('/jobs/posted');
+    } catch (error) {
+      console.error('Job submission failed:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (user?.role !== 'recruiter') {
@@ -96,7 +115,7 @@ const CreateJob = () => {
               <h1 className="text-3xl font-bold">Post A Job</h1>
               <div className="text-right">
                 <h2 className="text-xl font-semibold">Preview Job Post</h2>
-                <p className="text-sm text-muted-foreground">Preview your post before you purchase.</p>
+                <p className="text-sm text-muted-foreground">Preview your post before you publish.</p>
                 <Button className="mt-2 bg-gray-600 hover:bg-gray-700">PREVIEW</Button>
               </div>
             </div>
@@ -104,30 +123,19 @@ const CreateJob = () => {
             {/* Step indicators */}
             <div className="flex items-center justify-center mb-8">
               <div className="flex items-center space-x-4">
-                <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
-                  step >= 1 ? 'bg-blue-600 text-white' : 'bg-gray-200'
-                }`}>
-                  1
-                </div>
-                <span className="text-sm font-medium">Job Post Details</span>
-                
-                <div className="w-12 h-px bg-gray-300"></div>
-                
-                <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
-                  step >= 2 ? 'bg-blue-600 text-white' : 'bg-gray-200'
-                }`}>
-                  2
-                </div>
-                <span className="text-sm font-medium">Post Duration</span>
-                
-                <div className="w-12 h-px bg-gray-300"></div>
-                
-                <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
-                  step >= 3 ? 'bg-blue-600 text-white' : 'bg-gray-200'
-                }`}>
-                  3
-                </div>
-                <span className="text-sm font-medium">Payment Details</span>
+                {[1, 2, 3].map((n) => (
+                  <>
+                    <div
+                      key={n}
+                      className={`flex items-center justify-center w-8 h-8 rounded-full ${
+                        step >= n ? 'bg-blue-600 text-white' : 'bg-gray-200'
+                      }`}
+                    >
+                      {n}
+                    </div>
+                    {n < 3 && <div className="w-12 h-px bg-gray-300"></div>}
+                  </>
+                ))}
               </div>
             </div>
 
@@ -137,142 +145,79 @@ const CreateJob = () => {
                   <CardTitle>Job Details</CardTitle>
                   <CardDescription>Provide information about the job position</CardDescription>
                 </CardHeader>
+
                 <CardContent className="space-y-6">
+                  {/* Title + Company */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <Label htmlFor="jobTitle">Job Title *</Label>
+                      <Label htmlFor="title">Job Title *</Label>
                       <Input
-                        id="jobTitle"
-                        placeholder="e.g. Marketing Manager"
-                        value={formData.jobTitle}
-                        onChange={(e) => handleInputChange('jobTitle', e.target.value)}
+                        id="title"
+                        placeholder="e.g. Software Engineer"
+                        value={formData.title}
+                        onChange={(e) => handleInputChange('title', e.target.value)}
                         required
                       />
-                      <div className="text-xs text-muted-foreground mt-1">17/100</div>
                     </div>
-
                     <div>
-                      <Label htmlFor="employer">Employer *</Label>
+                      <Label htmlFor="company_name">Company Name *</Label>
                       <Input
-                        id="employer"
-                        placeholder="Company name"
-                        value={formData.employer}
-                        onChange={(e) => handleInputChange('employer', e.target.value)}
+                        id="company_name"
+                        placeholder="e.g. OpenAI"
+                        value={formData.company_name}
+                        onChange={(e) => handleInputChange('company_name', e.target.value)}
                         required
                       />
-                      <div className="text-xs text-muted-foreground mt-1">12/150</div>
                     </div>
                   </div>
 
-                  <div>
-                    <Label htmlFor="website">Employer Website</Label>
-                    <Input
-                      id="website"
-                      placeholder="www.company.com"
-                      value={formData.website}
-                      onChange={(e) => handleInputChange('website', e.target.value)}
-                    />
-                    <div className="text-xs text-muted-foreground mt-1">20/150</div>
-                  </div>
-
+                  {/* Location + Job Type */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <Label htmlFor="addressLine1">Address Line 1 *</Label>
+                      <Label htmlFor="location">Location *</Label>
                       <Input
-                        id="addressLine1"
-                        placeholder="Street address"
-                        value={formData.addressLine1}
-                        onChange={(e) => handleInputChange('addressLine1', e.target.value)}
+                        id="location"
+                        placeholder="e.g. Remote or San Francisco, CA"
+                        value={formData.location}
+                        onChange={(e) => handleInputChange('location', e.target.value)}
                         required
                       />
-                      <div className="text-xs text-muted-foreground mt-1">28/250</div>
                     </div>
-
                     <div>
-                      <Label htmlFor="addressLine2">Address Line 2</Label>
-                      <Input
-                        id="addressLine2"
-                        placeholder="Apt, suite, etc."
-                        value={formData.addressLine2}
-                        onChange={(e) => handleInputChange('addressLine2', e.target.value)}
-                      />
-                      <div className="text-xs text-muted-foreground mt-1">15/250</div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div>
-                      <Label htmlFor="city">City *</Label>
-                      <Input
-                        id="city"
-                        placeholder="City"
-                        value={formData.city}
-                        onChange={(e) => handleInputChange('city', e.target.value)}
-                        required
-                      />
-                      <div className="text-xs text-muted-foreground mt-1">7/250</div>
-                    </div>
-
-                    <div>
-                      <Label htmlFor="state">State *</Label>
-                      <Select value={formData.state} onValueChange={(value) => handleInputChange('state', value)}>
+                      <Label htmlFor="job_type">Job Type *</Label>
+                      <Select value={formData.job_type} onValueChange={(v) => handleInputChange('job_type', v)}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select state" />
+                          <SelectValue placeholder="Select job type" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="georgia">Georgia</SelectItem>
-                          <SelectItem value="california">California</SelectItem>
-                          <SelectItem value="texas">Texas</SelectItem>
-                          <SelectItem value="new-york">New York</SelectItem>
+                          <SelectItem value="full-time">Full-Time</SelectItem>
+                          <SelectItem value="part-time">Part-Time</SelectItem>
+                          <SelectItem value="internship">Internship</SelectItem>
+                          <SelectItem value="contract">Contract</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
-
-                    <div>
-                      <Label htmlFor="zipCode">Zip Code *</Label>
-                      <Input
-                        id="zipCode"
-                        placeholder="Zip code"
-                        value={formData.zipCode}
-                        onChange={(e) => handleInputChange('zipCode', e.target.value)}
-                        required
-                      />
-                    </div>
                   </div>
 
-                  <div>
-                    <Label htmlFor="country">Country *</Label>
-                    <Select value={formData.country} onValueChange={(value) => handleInputChange('country', value)}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select country" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="united-states">United States</SelectItem>
-                        <SelectItem value="canada">Canada</SelectItem>
-                        <SelectItem value="india">India</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
+                  {/* Qualification + Experience */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <Label htmlFor="qualification">Qualification Required *</Label>
-                      <Select value={formData.qualification} onValueChange={(value) => handleInputChange('qualification', value)}>
+                      <Label htmlFor="qualification">Qualification *</Label>
+                      <Select value={formData.qualification} onValueChange={(v) => handleInputChange('qualification', v)}>
                         <SelectTrigger>
                           <SelectValue placeholder="Select qualification" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="bachelors">Bachelor's Degree</SelectItem>
-                          <SelectItem value="masters">Master's Degree</SelectItem>
+                          <SelectItem value="bachelors">Bachelor's</SelectItem>
+                          <SelectItem value="masters">Master's</SelectItem>
                           <SelectItem value="phd">PhD</SelectItem>
                           <SelectItem value="diploma">Diploma</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
-
                     <div>
-                      <Label htmlFor="experienceLevel">Experience Level *</Label>
-                      <Select value={formData.experienceLevel} onValueChange={(value) => handleInputChange('experienceLevel', value)}>
+                      <Label htmlFor="experience_level">Experience Level *</Label>
+                      <Select value={formData.experience_level} onValueChange={(v) => handleInputChange('experience_level', v)}>
                         <SelectTrigger>
                           <SelectValue placeholder="Select experience level" />
                         </SelectTrigger>
@@ -284,9 +229,32 @@ const CreateJob = () => {
                     </div>
                   </div>
 
+                  {/* Salary + Deadline */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <Label htmlFor="salary_range">Salary Range</Label>
+                      <Input
+                        id="salary_range"
+                        placeholder="e.g. ₹6 LPA - ₹12 LPA"
+                        value={formData.salary_range}
+                        onChange={(e) => handleInputChange('salary_range', e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="application_deadline">Application Deadline</Label>
+                      <Input
+                        id="application_deadline"
+                        type="date"
+                        value={formData.application_deadline}
+                        onChange={(e) => handleInputChange('application_deadline', e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Notice period */}
                   <div>
-                    <Label htmlFor="noticePeriod">Preferred Notice Period</Label>
-                    <Select value={formData.noticePeriod} onValueChange={(value) => handleInputChange('noticePeriod', value)}>
+                    <Label htmlFor="notice_period">Preferred Notice Period</Label>
+                    <Select value={formData.notice_period} onValueChange={(v) => handleInputChange('notice_period', v)}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select notice period" />
                       </SelectTrigger>
@@ -295,17 +263,17 @@ const CreateJob = () => {
                         <SelectItem value="15-days">15 Days</SelectItem>
                         <SelectItem value="1-month">1 Month</SelectItem>
                         <SelectItem value="2-months">2 Months</SelectItem>
-                        <SelectItem value="3-months">3 Months</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
+                  {/* Skills */}
                   <div>
-                    <Label htmlFor="skills">Required Skills</Label>
+                    <Label>Required Skills</Label>
                     <div className="space-y-2">
                       <div className="flex gap-2">
                         <Input
-                          placeholder="Enter a skill and press Enter"
+                          placeholder="Enter skill and press Enter"
                           value={currentSkill}
                           onChange={(e) => setCurrentSkill(e.target.value)}
                           onKeyPress={handleKeyPress}
@@ -316,8 +284,8 @@ const CreateJob = () => {
                       </div>
                       {skills.length > 0 && (
                         <div className="flex flex-wrap gap-2">
-                          {skills.map((skill, index) => (
-                            <Badge key={index} variant="secondary" className="flex items-center gap-1">
+                          {skills.map((skill, i) => (
+                            <Badge key={i} variant="secondary" className="flex items-center gap-1">
                               {skill}
                               <button
                                 type="button"
@@ -333,14 +301,27 @@ const CreateJob = () => {
                     </div>
                   </div>
 
+                  {/* Description */}
                   <div>
-                    <Label htmlFor="jobDescription">Job Description *</Label>
+                    <Label htmlFor="job_description">Job Description *</Label>
                     <Textarea
-                      id="jobDescription"
-                      placeholder="Describe the job responsibilities, requirements, and benefits..."
+                      id="job_description"
+                      placeholder="Describe the role, responsibilities, and benefits..."
                       rows={6}
-                      value={formData.jobDescription}
-                      onChange={(e) => handleInputChange('jobDescription', e.target.value)}
+                      value={formData.job_description}
+                      onChange={(e) => handleInputChange('job_description', e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  {/* Contact Email */}
+                  <div>
+                    <Label htmlFor="contact_email">Contact Email *</Label>
+                    <Input
+                      id="contact_email"
+                      type="email"
+                      value={formData.contact_email}
+                      onChange={(e) => handleInputChange('contact_email', e.target.value)}
                       required
                     />
                   </div>
@@ -351,8 +332,8 @@ const CreateJob = () => {
                 <Button variant="outline" onClick={() => navigate('/jobs/posted')}>
                   Cancel
                 </Button>
-                <Button type="submit">
-                  Post Job
+                <Button type="submit" disabled={loading}>
+                  {loading ? 'Posting...' : 'Post Job'}
                 </Button>
               </div>
             </form>

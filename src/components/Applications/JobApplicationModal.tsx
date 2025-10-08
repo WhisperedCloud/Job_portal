@@ -1,145 +1,54 @@
-
 import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { Input } from '../ui/input';
-import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
+import { Label } from '../ui/label';
 import { FileUpload } from '../ui/file-upload';
-import { Job } from '@/types';
 import { useCandidate } from '@/hooks/useCandidate';
-import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
-import { AlertCircle } from 'lucide-react';
+import { useJobApplication } from '@/hooks/useJobApplication';
+import { AlertCircle, Loader2 } from 'lucide-react';
 
 interface JobApplicationModalProps {
-  job: Job;
+  job: any;
   isOpen: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
 }
 
-const JobApplicationModal = ({ job, isOpen, onClose }: JobApplicationModalProps) => {
-  const { profile, uploadFile } = useCandidate();
-  const [loading, setLoading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<string>('');
-  const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    phone: '',
-    appliedPosition: job.title,
-    earliestStartDate: '',
-    preferredInterviewDate: '',
-    coverLetter: ''
-  });
+const JobApplicationModal = ({ job, isOpen, onClose, onSuccess }: JobApplicationModalProps) => {
+  const { profile } = useCandidate();
+  const { isSubmitting, uploadProgress, submitApplication } = useJobApplication();
+  const [coverLetter, setCoverLetter] = useState('');
   const [resumeFile, setResumeFile] = useState<File | null>(null);
-  const [additionalDocsFile, setAdditionalDocsFile] = useState<File | null>(null);
-  const [isResumeUploading, setIsResumeUploading] = useState(false);
-  const [isDocsUploading, setIsDocsUploading] = useState(false);
 
   const handleResumeSelect = (file: File) => {
     console.log('Resume file selected:', file.name);
     setResumeFile(file);
   };
 
-  const handleAdditionalDocsSelect = (file: File) => {
-    console.log('Additional documents file selected:', file.name);
-    setAdditionalDocsFile(file);
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!profile) {
-      toast.error('Profile not found. Please complete your profile first.');
-      return;
-    }
-
     if (!resumeFile) {
-      toast.error('Please upload a resume');
       return;
     }
-
-    setLoading(true);
-    setUploadProgress('Preparing application...');
 
     try {
-      let resumeUrl = '';
-      let additionalDocsUrl = '';
-
-      // Upload resume
-      if (resumeFile) {
-        setUploadProgress('Uploading resume...');
-        setIsResumeUploading(true);
-        resumeUrl = await uploadFile(resumeFile, 'resumes', 'applications/');
-        setIsResumeUploading(false);
-      }
-      
-      // Upload additional documents if provided
-      if (additionalDocsFile) {
-        setUploadProgress('Uploading additional documents...');
-        setIsDocsUploading(true);
-        additionalDocsUrl = await uploadFile(additionalDocsFile, 'documents', 'applications/');
-        setIsDocsUploading(false);
-      }
-
-      setUploadProgress('Submitting application...');
-
-      // Submit application to database
-      const applicationData = {
-        job_id: job.id,
-        candidate_id: profile.id,
-        status: 'applied' as const,
-        cover_letter: formData.coverLetter || null
-      };
-
-      console.log('Submitting application data:', applicationData);
-
-      const { data: applicationResult, error: applicationError } = await supabase
-        .from('applications')
-        .insert(applicationData)
-        .select()
-        .single();
-
-      if (applicationError) {
-        console.error('Application submission error:', applicationError);
-        throw applicationError;
-      }
-
-      // Update candidate's resume_url if it's their latest
-      if (resumeUrl && profile.resume_url !== resumeUrl) {
-        await supabase
-          .from('candidates')
-          .update({ resume_url: resumeUrl })
-          .eq('id', profile.id);
-      }
-
-      console.log('Application submitted successfully:', applicationResult);
-      toast.success('Application submitted successfully!');
-      onClose();
+      await submitApplication(job.id, resumeFile, coverLetter);
       
       // Reset form
-      setFormData({
-        firstName: '',
-        lastName: '',
-        email: '',
-        phone: '',
-        appliedPosition: job.title,
-        earliestStartDate: '',
-        preferredInterviewDate: '',
-        coverLetter: ''
-      });
+      setCoverLetter('');
       setResumeFile(null);
-      setAdditionalDocsFile(null);
       
-    } catch (error: any) {
-      console.error('Error submitting application:', error);
-      toast.error(`Failed to submit application: ${error.message}`);
-    } finally {
-      setLoading(false);
-      setUploadProgress('');
-      setIsResumeUploading(false);
-      setIsDocsUploading(false);
+      // Call success callback if provided
+      if (onSuccess) {
+        onSuccess();
+      }
+      
+      // Close modal
+      onClose();
+    } catch (error) {
+      console.error('Application submission failed:', error);
     }
   };
 
@@ -148,134 +57,130 @@ const JobApplicationModal = ({ job, isOpen, onClose }: JobApplicationModalProps)
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Apply for {job.title}</DialogTitle>
+          {job.recruiter?.company_name && (
+            <p className="text-sm text-muted-foreground">
+              at {job.recruiter.company_name}
+            </p>
+          )}
         </DialogHeader>
         
         {uploadProgress && (
-          <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
-            <AlertCircle className="h-4 w-4 text-blue-600" />
+          <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <Loader2 className="h-4 w-4 text-blue-600 animate-spin" />
             <span className="text-sm text-blue-800">{uploadProgress}</span>
           </div>
         )}
         
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="firstName">First Name *</Label>
-              <Input
-                id="firstName"
-                required
-                value={formData.firstName}
-                onChange={(e) => setFormData(prev => ({ ...prev, firstName: e.target.value }))}
-              />
-            </div>
-            <div>
-              <Label htmlFor="lastName">Last Name *</Label>
-              <Input
-                id="lastName"
-                required
-                value={formData.lastName}
-                onChange={(e) => setFormData(prev => ({ ...prev, lastName: e.target.value }))}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="email">Email *</Label>
-              <Input
-                id="email"
-                type="email"
-                required
-                value={formData.email}
-                onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
-              />
-            </div>
-            <div>
-              <Label htmlFor="phone">Phone *</Label>
-              <Input
-                id="phone"
-                required
-                value={formData.phone}
-                onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-              />
+          {/* Profile Summary */}
+          <div className="bg-muted p-4 rounded-md space-y-2">
+            <h3 className="font-medium text-sm">Your Application Profile</h3>
+            <div className="text-sm space-y-1">
+              <p><strong>Name:</strong> {profile?.name || 'Not set'}</p>
+              <p><strong>Phone:</strong> {profile?.phone || 'Not set'}</p>
+              <p><strong>Location:</strong> {profile?.location || 'Not set'}</p>
+              {profile?.skills && profile.skills.length > 0 && (
+                <p><strong>Skills:</strong> {profile.skills.join(', ')}</p>
+              )}
+              {profile?.resume_url && (
+                <p>
+                  <strong>Current Resume:</strong>{' '}
+                  <a 
+                    href={profile.resume_url} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline"
+                  >
+                    View Profile Resume
+                  </a>
+                </p>
+              )}
             </div>
           </div>
 
+          {/* Cover Letter */}
           <div>
-            <Label htmlFor="appliedPosition">Applied Position</Label>
-            <Input
-              id="appliedPosition"
-              value={formData.appliedPosition}
-              onChange={(e) => setFormData(prev => ({ ...prev, appliedPosition: e.target.value }))}
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="earliestStartDate">Earliest Start Date</Label>
-              <Input
-                id="earliestStartDate"
-                type="date"
-                value={formData.earliestStartDate}
-                onChange={(e) => setFormData(prev => ({ ...prev, earliestStartDate: e.target.value }))}
-              />
-            </div>
-            <div>
-              <Label htmlFor="preferredInterviewDate">Preferred Interview Date</Label>
-              <Input
-                id="preferredInterviewDate"
-                type="date"
-                value={formData.preferredInterviewDate}
-                onChange={(e) => setFormData(prev => ({ ...prev, preferredInterviewDate: e.target.value }))}
-              />
-            </div>
-          </div>
-
-          <div>
-            <Label htmlFor="coverLetter">Cover Letter</Label>
+            <Label htmlFor="coverLetter">
+              Cover Letter <span className="text-muted-foreground">(Optional but recommended)</span>
+            </Label>
             <Textarea
               id="coverLetter"
-              rows={4}
-              value={formData.coverLetter}
-              onChange={(e) => setFormData(prev => ({ ...prev, coverLetter: e.target.value }))}
-              placeholder="Tell us why you're interested in this position..."
+              rows={6}
+              value={coverLetter}
+              onChange={(e) => setCoverLetter(e.target.value)}
+              placeholder="Tell the employer why you're interested in this position and what makes you a great fit for their team..."
+              disabled={isSubmitting}
             />
+            <p className="text-xs text-muted-foreground mt-1">
+              A well-written cover letter increases your chances of getting noticed.
+            </p>
           </div>
 
-          {/* Resume Upload Section */}
+          {/* Resume Upload */}
           <div>
-            <Label className="text-base font-medium">Resume Upload *</Label>
+            <Label className="text-base font-medium">
+              Resume Upload *
+            </Label>
+            <p className="text-sm text-muted-foreground mb-2">
+              Upload a resume for this specific application (PDF, DOC, DOCX - Max 5MB)
+            </p>
             <div className="mt-2">
               <FileUpload
                 onFileSelect={handleResumeSelect}
-                accept=".pdf"
-                maxSize={10}
+                accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                maxSize={5}
                 uploadType="resume"
-                isUploading={isResumeUploading}
+                isUploading={isSubmitting}
               />
+              {resumeFile && (
+                <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-md">
+                  <p className="text-sm text-green-700">
+                    ✓ Selected: <strong>{resumeFile.name}</strong> ({(resumeFile.size / 1024 / 1024).toFixed(2)} MB)
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Additional Documents Upload Section */}
-          <div>
-            <Label className="text-base font-medium">Additional Documents</Label>
-            <div className="mt-2">
-              <FileUpload
-                onFileSelect={handleAdditionalDocsSelect}
-                accept=".pdf,.doc,.docx"
-                maxSize={10}
-                uploadType="document"
-                isUploading={isDocsUploading}
-              />
+          {/* Important Notice */}
+          <div className="bg-amber-50 border border-amber-200 p-3 rounded-md">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+              <div className="text-sm text-amber-800">
+                <p className="font-medium mb-1">Application Details</p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>Your profile information will be shared with the employer</li>
+                  <li>This resume will be saved to your applications folder</li>
+                  <li>You can track this application in "My Applications"</li>
+                </ul>
+              </div>
             </div>
           </div>
 
+          {/* Action Buttons */}
           <div className="flex gap-4 pt-4 border-t">
-            <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={onClose} 
+              disabled={isSubmitting}
+              className="flex-1"
+            >
               Cancel
             </Button>
-            <Button type="submit" disabled={loading || !resumeFile}>
-              {loading ? uploadProgress || 'Submitting...' : 'Apply'}
+            <Button 
+              type="submit" 
+              disabled={isSubmitting || !resumeFile}
+              className="flex-1"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {uploadProgress || 'Submitting...'}
+                </>
+              ) : (
+                'Submit Application'
+              )}
             </Button>
           </div>
         </form>

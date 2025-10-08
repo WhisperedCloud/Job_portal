@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -7,6 +6,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Badge } from '../ui/badge';
 import { MapPin, Clock, Building, Search } from 'lucide-react';
 import JobApplicationModal from '../Applications/JobApplicationModal';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 const JobListing = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -14,53 +15,65 @@ const JobListing = () => {
   const [experienceFilter, setExperienceFilter] = useState('');
   const [selectedJob, setSelectedJob] = useState(null);
   const [isApplicationModalOpen, setIsApplicationModalOpen] = useState(false);
+  const [jobs, setJobs] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const mockJobs = [
-    {
-      id: '1',
-      title: 'Frontend Developer',
-      company: 'Tech Corp',
-      location: 'San Francisco, CA',
-      experience_level: 'experienced',
-      skills_required: ['React', 'TypeScript', 'CSS'],
-      job_description: 'We are looking for a skilled Frontend Developer to join our team...',
-      created_at: '2024-01-15',
-    },
-    {
-      id: '2',
-      title: 'React Developer',
-      company: 'StartupXYZ',
-      location: 'New York, NY',
-      experience_level: 'fresher',
-      skills_required: ['React', 'JavaScript', 'HTML'],
-      job_description: 'Join our dynamic startup as a React Developer...',
-      created_at: '2024-01-14',
-    },
-    {
-      id: '3',
-      title: 'Full Stack Developer',
-      company: 'Innovation Labs',
-      location: 'Austin, TX',
-      experience_level: 'experienced',
-      skills_required: ['Node.js', 'React', 'MongoDB'],
-      job_description: 'Looking for a Full Stack Developer to build amazing products...',
-      created_at: '2024-01-12',
-    },
-  ];
+  useEffect(() => {
+    fetchJobs();
+  }, []);
 
-  const filteredJobs = mockJobs.filter(job => {
+  const fetchJobs = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('jobs')
+        .select(`
+          *,
+          recruiter:recruiters (
+            id,
+            company_name,
+            industry
+          )
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      console.log('Fetched jobs:', data);
+      setJobs(data || []);
+    } catch (error) {
+      console.error('Error fetching jobs:', error);
+      toast.error('Failed to load jobs');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredJobs = jobs.filter(job => {
     const matchesSearch = job.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         job.skills_required.some(skill => skill.toLowerCase().includes(searchTerm.toLowerCase()));
-    const matchesLocation = !locationFilter || job.location.toLowerCase().includes(locationFilter.toLowerCase());
+                         job.skills_required?.some(skill => skill.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesLocation = !locationFilter || job.location?.toLowerCase().includes(locationFilter.toLowerCase());
     const matchesExperience = !experienceFilter || experienceFilter === 'all' || job.experience_level === experienceFilter;
     
     return matchesSearch && matchesLocation && matchesExperience;
   });
 
   const handleApplyNow = (job) => {
+    console.log('Applying for job:', job.id);
     setSelectedJob(job);
     setIsApplicationModalOpen(true);
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
+          <p>Loading jobs...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -106,7 +119,10 @@ const JobListing = () => {
               </Select>
             </div>
             <div>
-              <Button className="w-full">Search</Button>
+              <Button className="w-full" onClick={fetchJobs}>
+                <Search className="h-4 w-4 mr-2" />
+                Search
+              </Button>
             </div>
           </div>
         </CardContent>
@@ -118,47 +134,68 @@ const JobListing = () => {
           {filteredJobs.length} jobs found
         </div>
         
-        {filteredJobs.map((job) => (
-          <Card key={job.id} className="hover:shadow-md transition-shadow">
-            <CardContent className="p-6">
-              <div className="flex justify-between items-start">
-                <div className="flex-1">
-                  <h3 className="text-xl font-semibold mb-2">{job.title}</h3>
-                  <div className="flex items-center gap-4 text-sm text-muted-foreground mb-3">
-                    <div className="flex items-center gap-1">
-                      <Building className="h-4 w-4" />
-                      {job.company}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <MapPin className="h-4 w-4" />
-                      {job.location}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Clock className="h-4 w-4" />
-                      {job.created_at}
-                    </div>
-                  </div>
-                  <p className="text-muted-foreground mb-3">
-                    {job.job_description.substring(0, 150)}...
-                  </p>
-                  <div className="flex gap-2 mb-3">
-                    {job.skills_required.map((skill, index) => (
-                      <Badge key={index} variant="secondary">
-                        {skill}
-                      </Badge>
-                    ))}
-                  </div>
-                  <Badge variant={job.experience_level === 'fresher' ? 'default' : 'outline'}>
-                    {job.experience_level}
-                  </Badge>
-                </div>
-                <div className="ml-4">
-                  <Button onClick={() => handleApplyNow(job)}>Apply Now</Button>
-                </div>
-              </div>
+        {filteredJobs.length === 0 ? (
+          <Card>
+            <CardContent className="p-8 text-center">
+              <p className="text-muted-foreground mb-4">
+                No jobs found. {jobs.length === 0 ? 'No jobs have been posted yet.' : 'Try adjusting your filters.'}
+              </p>
+              <Button onClick={fetchJobs} variant="outline">
+                Refresh Jobs
+              </Button>
             </CardContent>
           </Card>
-        ))}
+        ) : (
+          filteredJobs.map((job) => (
+            <Card key={job.id} className="hover:shadow-md transition-shadow">
+              <CardContent className="p-6">
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <h3 className="text-xl font-semibold mb-2">{job.title}</h3>
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground mb-3">
+                      <div className="flex items-center gap-1">
+                        <Building className="h-4 w-4" />
+                        {job.recruiter?.company_name || 'Company'}
+                      </div>
+                      {job.location && (
+                        <div className="flex items-center gap-1">
+                          <MapPin className="h-4 w-4" />
+                          {job.location}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1">
+                        <Clock className="h-4 w-4" />
+                        {new Date(job.created_at).toLocaleDateString()}
+                      </div>
+                    </div>
+                    {job.job_description && (
+                      <p className="text-muted-foreground mb-3">
+                        {job.job_description.substring(0, 150)}...
+                      </p>
+                    )}
+                    {job.skills_required && job.skills_required.length > 0 && (
+                      <div className="flex gap-2 mb-3">
+                        {job.skills_required.map((skill, index) => (
+                          <Badge key={index} variant="secondary">
+                            {skill}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                    {job.experience_level && (
+                      <Badge variant={job.experience_level === 'fresher' ? 'default' : 'outline'}>
+                        {job.experience_level}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="ml-4">
+                    <Button onClick={() => handleApplyNow(job)}>Apply Now</Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
       </div>
 
       {selectedJob && (

@@ -1,43 +1,31 @@
-
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { useNavigate } from 'react-router-dom';
 import { Briefcase, Users, FileText, Plus } from 'lucide-react';
+import { useRecruiter } from '@/hooks/useRecruiter';
 
 const RecruiterDashboard = () => {
   const navigate = useNavigate();
+  const { profile, loading: profileLoading, fetchRecruiterStats } = useRecruiter();
+  const [stats, setStats] = useState(null);
+  const [dataLoading, setDataLoading] = useState(true);
 
-  const stats = [
-    { title: 'Active Jobs', value: '8', icon: Briefcase },
-    { title: 'Total Applications', value: '124', icon: FileText },
-    { title: 'Candidates Shortlisted', value: '23', icon: Users },
-    { title: 'Interviews Scheduled', value: '12', icon: Users },
-  ];
+  // Fetch stats when profile loads
+  useEffect(() => {
+    const loadStats = async () => {
+      if (profile) {
+        setDataLoading(true);
+        const fetchedStats = await fetchRecruiterStats();
+        setStats(fetchedStats);
+        setDataLoading(false);
+      } else if (!profileLoading) {
+        setDataLoading(false);
+      }
+    };
+    loadStats();
+  }, [profile, profileLoading]);
 
-  const recentJobs = [
-    {
-      id: '1',
-      title: 'Senior Frontend Developer',
-      applications: 45,
-      status: 'active',
-      postedAt: '2024-01-10',
-    },
-    {
-      id: '2',
-      title: 'React Developer',
-      applications: 32,
-      status: 'active',
-      postedAt: '2024-01-08',
-    },
-    {
-      id: '3',
-      title: 'Backend Developer',
-      applications: 28,
-      status: 'paused',
-      postedAt: '2024-01-05',
-    },
-  ];
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -52,6 +40,24 @@ const RecruiterDashboard = () => {
     }
   };
 
+  const dashboardStats = [
+    { title: 'Total Jobs', value: stats?.totalJobs || 0, icon: Briefcase },
+    { title: 'Active Jobs', value: stats?.activeJobs || 0, icon: Briefcase },
+    { title: 'Total Applications', value: stats?.totalApplications || 0, icon: FileText },
+    { title: 'Applications Reviewed', value: stats?.reviewedApplications || 0, icon: Users },
+  ];
+
+  if (profileLoading || dataLoading) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
+          <p>Loading dashboard data...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -63,7 +69,7 @@ const RecruiterDashboard = () => {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat) => {
+        {dashboardStats.map((stat) => {
           const Icon = stat.icon;
           return (
             <Card key={stat.title}>
@@ -71,9 +77,11 @@ const RecruiterDashboard = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">{stat.title}</p>
-                    <p className="text-2xl font-bold">{stat.value}</p>
+                    <p className="text-2xl font-bold">{stat.value.toLocaleString()}</p>
                   </div>
-                  <Icon className="h-8 w-8 text-muted-foreground" />
+                  <Icon 
+                    className={`h-8 w-8 ${stat.title.includes('Active') ? 'text-green-600' : 'text-muted-foreground'}`} 
+                  />
                 </div>
               </CardContent>
             </Card>
@@ -117,26 +125,30 @@ const RecruiterDashboard = () => {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {recentJobs.map((job) => (
-              <div
-                key={job.id}
-                className="flex items-center justify-between p-4 border border-border rounded-lg"
-              >
-                <div>
-                  <h3 className="font-medium">{job.title}</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {job.applications} applications • Posted {job.postedAt}
-                  </p>
-                </div>
-                <span
-                  className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(
-                    job.status
-                  )}`}
-                >
-                  {job.status}
-                </span>
-              </div>
-            ))}
+            {stats?.recentJobs?.length > 0 ? (
+                stats.recentJobs.map((job) => (
+                    <div
+                        key={job.id}
+                        className="flex items-center justify-between p-4 border border-border rounded-lg"
+                    >
+                        <div>
+                        <h3 className="font-medium">{job.title}</h3>
+                        <p className="text-sm text-muted-foreground">
+                            {job.applications} applications • Posted {job.postedAt}
+                        </p>
+                        </div>
+                        <span
+                        className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(
+                            job.status
+                        )}`}
+                        >
+                        {job.status}
+                        </span>
+                    </div>
+                ))
+            ) : (
+                <p className="text-muted-foreground text-center py-4">No recent jobs found. Start posting!</p>
+            )}
           </div>
         </CardContent>
       </Card>

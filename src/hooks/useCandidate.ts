@@ -1,5 +1,3 @@
-// whisperedcloud/job-portal/Job-portal-a4e6f3febf7c2af1c6b0ae3caeec2fd6d7878031/src/hooks/useCandidate.ts
-
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -18,6 +16,27 @@ export interface CandidateProfile {
   license_type?: string;
   license_number?: string;
 }
+
+// -------------------------------------------------------------------
+// 💡 SIMULATED RESUME PARSER (In a real app, this would be an API call)
+// This function simulates fetching extracted data from a resume analyzer.
+// -------------------------------------------------------------------
+const simulateResumeAnalysis = (file: File) => {
+  // In a real application, you would use fetch() here to call your API/Edge Function.
+  // The API would read the file's content from the bucket URL and return structured data.
+  
+  const extractedName = file.name.replace(/[^a-zA-Z]/g, ' ').split(' ').filter(Boolean).slice(0, 2).join(' ');
+  const randomPhone = `+1-555-${Math.floor(1000 + Math.random() * 9000)}`;
+
+  return {
+    name: extractedName || 'Candidate Name',
+    phone: randomPhone,
+    skills: ['React', 'TypeScript', 'Tailwind CSS', 'SQL', 'Project Management'],
+    experience: "1. Senior Developer at Acme Corp (2020-Present)\n2. Junior Dev at Startup XYZ (2018-2020)",
+  };
+};
+// -------------------------------------------------------------------
+
 
 export const useCandidate = () => {
   const { user } = useAuth();
@@ -106,6 +125,8 @@ export const useCandidate = () => {
     try {
       if (!user) throw new Error('User not authenticated');
       
+      // We will now handle resume parsing logic inside the upload process
+      
       const fileExt = file.name.split('.').pop();
       const fileName = `${user.id}/${folder}${Date.now()}.${fileExt}`;
       
@@ -131,9 +152,42 @@ export const useCandidate = () => {
 
       console.log('Public URL:', urlData.publicUrl);
       return urlData.publicUrl;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error uploading file:', error);
       toast.error(`Failed to upload file: ${error.message}`);
+      throw error;
+    }
+  };
+
+  /**
+   * Handles resume upload, analysis, and autofilling profile fields.
+   * This is the dedicated function called from CandidateProfile.tsx.
+   */
+  const uploadAndAutofillResume = async (file: File) => {
+    try {
+      // 1. Upload the file (using the existing, reliable uploadFile function)
+      const resumeUrl = await uploadFile(file, 'resumes', 'profiles/');
+
+      // 2. Simulate analysis and get extracted data
+      // NOTE: In a real app, this function would call an external API/Edge Function.
+      const extractedData = simulateResumeAnalysis(file);
+
+      // 3. Update the database profile with the new URL and extracted data
+      const updates = {
+        resume_url: resumeUrl,
+        name: extractedData.name, // Autofill name
+        phone: extractedData.phone, // Autofill phone
+        skills: [...new Set([...(profile?.skills || []), ...extractedData.skills])], // Merge skills
+        experience: extractedData.experience, // Autofill experience
+      };
+      
+      await updateProfile(updates);
+
+      toast.success('Resume uploaded and profile auto-filled!');
+      return resumeUrl;
+    } catch (error) {
+      console.error('Autofill error:', error);
+      toast.error('Failed to process resume for autofill.');
       throw error;
     }
   };
@@ -143,6 +197,7 @@ export const useCandidate = () => {
     loading,
     updateProfile,
     uploadFile,
+    uploadAndAutofillResume, // New function exposed
     refetch: fetchProfile
   };
 };

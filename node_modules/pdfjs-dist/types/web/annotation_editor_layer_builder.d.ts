@@ -12,9 +12,16 @@ export type AnnotationEditorLayerBuilderOptions = {
     structTreeLayer?: StructTreeLayerBuilder;
     accessibilityManager?: import("./text_accessibility.js").TextAccessibilityManager | undefined;
     annotationLayer?: import("../src/pdf").AnnotationLayer | undefined;
-    textLayer?: any;
-    drawLayer?: any;
+    textLayer?: TextLayer;
+    drawLayer?: DrawLayer;
     onAppend?: Function | undefined;
+};
+export type AnnotationEditorLayerBuilderRenderOptions = {
+    viewport: PageViewport;
+    /**
+     * - The default value is "display".
+     */
+    intent?: string | undefined;
 };
 /**
  * @typedef {Object} AnnotationEditorLayerBuilderOptions
@@ -28,6 +35,11 @@ export type AnnotationEditorLayerBuilderOptions = {
  * @property {DrawLayer} [drawLayer]
  * @property {function} [onAppend]
  */
+/**
+ * @typedef {Object} AnnotationEditorLayerBuilderRenderOptions
+ * @property {PageViewport} viewport
+ * @property {string} [intent] - The default value is "display".
+ */
 export class AnnotationEditorLayerBuilder {
     /**
      * @param {AnnotationEditorLayerBuilderOptions} options
@@ -40,10 +52,10 @@ export class AnnotationEditorLayerBuilder {
     div: HTMLDivElement | null;
     _cancelled: boolean;
     /**
-     * @param {PageViewport} viewport
-     * @param {string} intent (default value is 'display')
+     * @param {AnnotationEditorLayerBuilderRenderOptions} options
+     * @returns {Promise<void>}
      */
-    render(viewport: PageViewport, intent?: string): Promise<void>;
+    render({ viewport, intent }: AnnotationEditorLayerBuilderRenderOptions): Promise<void>;
     cancel(): void;
     hide(): void;
     show(): void;

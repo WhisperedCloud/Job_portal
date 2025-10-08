@@ -8,7 +8,7 @@ export class BaseCMapReaderFactory {
     fetch({ name }: {
         name: any;
     }): Promise<{
-        cMapData: Uint8Array;
+        cMapData: Uint8Array<ArrayBufferLike>;
         isCompressed: boolean;
     }>;
     /**
@@ -18,4 +18,8 @@ export class BaseCMapReaderFactory {
     _fetch(url: any): Promise<Uint8Array>;
 }
 export class DOMCMapReaderFactory extends BaseCMapReaderFactory {
+    /**
+     * @ignore
+     */
+    _fetch(url: any): Promise<Uint8Array<any>>;
 }
