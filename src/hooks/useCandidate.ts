@@ -192,12 +192,82 @@ export const useCandidate = () => {
     }
   };
 
+  // --- NEW FUNCTION: Fetch candidate statistics ---
+  const fetchCandidateStats = async () => {
+    if (!profile?.id) return null;
+
+    try {
+      // 1. Fetch all applications for this candidate
+      const { data: applicationsData, error: appsError } = await supabase
+        .from('applications')
+        .select(`
+          id, 
+          status, 
+          applied_at,
+          job:jobs (
+            id,
+            title,
+            recruiter:recruiters (
+              company_name
+            )
+          )
+        `)
+        .eq('candidate_id', profile.id)
+        .order('applied_at', { ascending: false });
+
+      if (appsError) throw appsError;
+
+      // 2. Count applications by status
+      const totalApplications = applicationsData?.length || 0;
+      const interviewsScheduled = applicationsData?.filter(
+        app => app.status === 'interview_scheduled'
+      ).length || 0;
+
+      // 3. Get job alerts (matching jobs based on candidate skills)
+      const candidateSkills = profile.skills || [];
+      let jobAlerts = 0;
+      
+      if (candidateSkills.length > 0) {
+        const { count, error: jobsError } = await supabase
+          .from('jobs')
+          .select('*', { count: 'exact', head: true })
+          .overlaps('requirements', candidateSkills);
+
+        if (!jobsError) {
+          jobAlerts = count || 0;
+        }
+      }
+
+      // 4. Format recent applications (last 5)
+      const recentApplications = applicationsData?.slice(0, 5).map(app => ({
+        id: app.id,
+        jobTitle: app.job?.title || 'Unknown Position',
+        company: app.job?.recruiter?.company_name || 'Unknown Company',
+        status: app.status,
+        appliedAt: new Date(app.applied_at).toLocaleDateString(),
+      })) || [];
+
+      return {
+        totalApplications,
+        profileViews: 0, // TODO: Implement profile views tracking
+        interviewsScheduled,
+        jobAlerts,
+        recentApplications
+      };
+    } catch (error) {
+      console.error('Error fetching candidate stats:', error);
+      return null;
+    }
+  };
+  // --- END NEW FUNCTION ---
+
   return {
     profile,
     loading,
     updateProfile,
     uploadFile,
-    uploadAndAutofillResume, // New function exposed
+    uploadAndAutofillResume,
+    fetchCandidateStats, // Expose the new stats fetcher
     refetch: fetchProfile
   };
 };
