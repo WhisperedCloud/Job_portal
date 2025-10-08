@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -132,11 +131,110 @@ export const useRecruiter = () => {
     }
   };
 
+  const createJob = async (jobData: any) => {
+    if (!profile) {
+      toast.error('Recruiter profile not found. Please complete your profile first.');
+      return;
+    }
+    
+    try {
+      const jobToInsert = {
+        ...jobData,
+        recruiter_id: profile.id,
+      };
+
+      const { data, error } = await supabase
+        .from('jobs')
+        .insert(jobToInsert)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      toast.success('Job posted successfully!');
+      return data;
+    } catch (error) {
+      console.error('Error creating job:', error);
+      toast.error(`Failed to post job: ${error.message}`);
+    }
+  };
+  
+  // --- NEW FUNCTION: Fetch aggregated stats ---
+  const fetchRecruiterStats = async () => {
+    if (!profile?.id) return null;
+
+    try {
+      // 1. Fetch all jobs posted by this recruiter
+      const { data: jobsData, error: jobsError } = await supabase
+        .from('jobs')
+        .select('id, title, created_at, applications(id, status)') // Added 'title' to the select statement
+        .eq('recruiter_id', profile.id);
+
+      if (jobsError) throw jobsError;
+
+      const now = new Date();
+      let totalApplications = 0;
+      let activeJobs = 0;
+      let totalApplicationsReviewed = 0;
+
+      jobsData.forEach(job => {
+        // Calculate Active/Closed status (2 months active period)
+        const createdDate = new Date(job.created_at);
+        const activeDeadline = new Date(createdDate);
+        activeDeadline.setMonth(createdDate.getMonth() + 2);
+        
+        const status = (now < activeDeadline) ? 'active' : 'closed';
+
+        if (status === 'active') {
+          activeJobs++;
+        }
+        
+        // Count total and reviewed applications
+        totalApplications += job.applications.length;
+        job.applications.forEach(app => {
+          if (app.status === 'under_review' || app.status === 'hired' || app.status === 'rejected') {
+            totalApplicationsReviewed++;
+          }
+        });
+      });
+
+      return {
+        totalJobs: jobsData.length,
+        activeJobs: activeJobs,
+        totalApplications: totalApplications,
+        reviewedApplications: totalApplicationsReviewed,
+        recentJobs: jobsData.slice(0, 3).map(job => ({
+            id: job.id,
+            title: job.title,
+            applications: job.applications.length,
+            postedAt: new Date(job.created_at).toLocaleDateString(),
+            status: determineJobStatus(job.created_at) // Reuse the status logic
+        }))
+      };
+    } catch (error) {
+      console.error('Error fetching recruiter stats:', error);
+      return null;
+    }
+  };
+  
+  // Helper function reused from PostedJobs.tsx logic
+  const determineJobStatus = (createdAt: string | null) => {
+    if (!createdAt) return 'paused'; 
+    const createdDate = new Date(createdAt);
+    const activeDeadline = new Date(createdDate);
+    activeDeadline.setMonth(createdDate.getMonth() + 2);
+    const now = new Date();
+    return (now < activeDeadline) ? 'active' : 'closed';
+  };
+  // --- END NEW FUNCTION ---
+
   return {
     profile,
     loading,
     updateProfile,
     uploadFile,
+    createJob,
+    fetchRecruiterStats, // Expose the new stats fetcher
     refetch: fetchProfile
   };
 };

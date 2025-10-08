@@ -5,7 +5,7 @@ export class BaseStandardFontDataFactory {
     baseUrl: any;
     fetch({ filename }: {
         filename: any;
-    }): Promise<Uint8Array>;
+    }): Promise<Uint8Array<ArrayBufferLike>>;
     /**
      * @ignore
      * @returns {Promise<Uint8Array>}
@@ -13,4 +13,8 @@ export class BaseStandardFontDataFactory {
     _fetch(url: any): Promise<Uint8Array>;
 }
 export class DOMStandardFontDataFactory extends BaseStandardFontDataFactory {
+    /**
+     * @ignore
+     */
+    _fetch(url: any): Promise<Uint8Array<any>>;
 }

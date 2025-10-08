@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, UserRole } from '../types';
@@ -11,6 +10,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, role: UserRole) => Promise<void>;
   logout: () => void;
+  uploadResume: (file: File) => Promise<any>; // 👈 added for resume uploads
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -206,6 +206,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
+  // 👇 NEW: Resume upload helper
+  const uploadResume = async (file: File) => {
+    if (!user) {
+      throw new Error("User not authenticated");
+    }
+
+    // Path format: Resumes/<userId>/<filename>
+    const filePath = `${user.id}/${file.name}`;
+
+    const { data, error } = await supabase.storage
+      .from('Resumes') 
+      .upload(filePath, file, { upsert: true });
+
+    if (error) {
+      console.error("Resume upload failed:", error.message);
+      throw error;
+    }
+
+    return data;
+  };
+
   return (
     <AuthContext.Provider value={{
       user,
@@ -213,6 +234,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       login,
       register,
       logout,
+      uploadResume, 
     }}>
       {children}
     </AuthContext.Provider>
