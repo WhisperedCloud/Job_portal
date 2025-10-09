@@ -7,9 +7,11 @@ import { Badge } from '../ui/badge';
 import { MapPin, Clock, Building, Search } from 'lucide-react';
 import JobApplicationModal from '../Applications/JobApplicationModal';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
 const JobListing = () => {
+  const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [locationFilter, setLocationFilter] = useState('');
   const [experienceFilter, setExperienceFilter] = useState('');
@@ -188,9 +190,13 @@ const JobListing = () => {
                       </Badge>
                     )}
                   </div>
-                  <div className="ml-4">
-                    <Button onClick={() => handleApplyNow(job)}>Apply Now</Button>
-                  </div>
+                  
+                  {/* Simple: Show button only if not admin */}
+                  {user?.role !== 'admin' && (
+                    <div className="ml-4">
+                      <Button onClick={() => handleApplyNow(job)}>Apply Now</Button>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -198,7 +204,8 @@ const JobListing = () => {
         )}
       </div>
 
-      {selectedJob && (
+      {/* Only show application modal if not admin */}
+      {selectedJob && user?.role !== 'admin' && (
         <JobApplicationModal
           job={selectedJob}
           isOpen={isApplicationModalOpen}

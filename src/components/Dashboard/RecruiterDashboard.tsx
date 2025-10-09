@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { useNavigate } from 'react-router-dom';
-import { Briefcase, Users, FileText, Plus } from 'lucide-react';
+import { Briefcase, Users, FileText, Plus, XCircle } from 'lucide-react';
 import { useRecruiter } from '@/hooks/useRecruiter';
 
 const RecruiterDashboard = () => {
@@ -11,12 +11,13 @@ const RecruiterDashboard = () => {
   const [stats, setStats] = useState(null);
   const [dataLoading, setDataLoading] = useState(true);
 
-  // Fetch stats when profile loads
   useEffect(() => {
     const loadStats = async () => {
       if (profile) {
         setDataLoading(true);
+        console.log('Loading stats for profile:', profile);
         const fetchedStats = await fetchRecruiterStats();
+        console.log('Fetched stats:', fetchedStats);
         setStats(fetchedStats);
         setDataLoading(false);
       } else if (!profileLoading) {
@@ -25,7 +26,6 @@ const RecruiterDashboard = () => {
     };
     loadStats();
   }, [profile, profileLoading]);
-
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -41,10 +41,10 @@ const RecruiterDashboard = () => {
   };
 
   const dashboardStats = [
-    { title: 'Total Jobs', value: stats?.totalJobs || 0, icon: Briefcase },
-    { title: 'Active Jobs', value: stats?.activeJobs || 0, icon: Briefcase },
-    { title: 'Total Applications', value: stats?.totalApplications || 0, icon: FileText },
-    { title: 'Applications Reviewed', value: stats?.reviewedApplications || 0, icon: Users },
+    { title: 'Total Jobs', value: stats?.totalJobs || 0, icon: Briefcase, color: 'text-muted-foreground' },
+    { title: 'Active Jobs', value: stats?.activeJobs || 0, icon: Briefcase, color: 'text-green-600' },
+    { title: 'Closed Jobs', value: stats?.closedJobs || 0, icon: XCircle, color: 'text-red-600' },
+    { title: 'Total Applications', value: stats?.totalApplications || 0, icon: FileText, color: 'text-blue-600' },
   ];
 
   if (profileLoading || dataLoading) {
@@ -79,9 +79,7 @@ const RecruiterDashboard = () => {
                     <p className="text-sm text-muted-foreground">{stat.title}</p>
                     <p className="text-2xl font-bold">{stat.value.toLocaleString()}</p>
                   </div>
-                  <Icon 
-                    className={`h-8 w-8 ${stat.title.includes('Active') ? 'text-green-600' : 'text-muted-foreground'}`} 
-                  />
+                  <Icon className={`h-8 w-8 ${stat.color}`} />
                 </div>
               </CardContent>
             </Card>
@@ -126,28 +124,29 @@ const RecruiterDashboard = () => {
         <CardContent>
           <div className="space-y-4">
             {stats?.recentJobs?.length > 0 ? (
-                stats.recentJobs.map((job) => (
-                    <div
-                        key={job.id}
-                        className="flex items-center justify-between p-4 border border-border rounded-lg"
-                    >
-                        <div>
-                        <h3 className="font-medium">{job.title}</h3>
-                        <p className="text-sm text-muted-foreground">
-                            {job.applications} applications • Posted {job.postedAt}
-                        </p>
-                        </div>
-                        <span
-                        className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(
-                            job.status
-                        )}`}
-                        >
-                        {job.status}
-                        </span>
-                    </div>
-                ))
+              stats.recentJobs.map((job) => (
+                <div
+                  key={job.id}
+                  className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors cursor-pointer"
+                  onClick={() => navigate('/jobs/posted')}
+                >
+                  <div>
+                    <h3 className="font-medium">{job.title}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {job.applications} applications • Posted {job.postedAt}
+                    </p>
+                  </div>
+                  <span
+                    className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(
+                      job.status
+                    )}`}
+                  >
+                    {job.status}
+                  </span>
+                </div>
+              ))
             ) : (
-                <p className="text-muted-foreground text-center py-4">No recent jobs found. Start posting!</p>
+              <p className="text-muted-foreground text-center py-4">No recent jobs found. Start posting!</p>
             )}
           </div>
         </CardContent>

@@ -3,28 +3,111 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui
 import { Button } from '../ui/button';
 import { useNavigate } from 'react-router-dom';
 import { Briefcase, FileText, User, Search } from 'lucide-react';
-import { useCandidate } from '@/hooks/useCandidate';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from 'sonner';
 
 const CandidateDashboard = () => {
   const navigate = useNavigate();
-  const { profile, loading: profileLoading, fetchCandidateStats } = useCandidate();
-  const [stats, setStats] = useState(null);
-  const [dataLoading, setDataLoading] = useState(true);
+  const { user } = useAuth();
+  const [stats, setStats] = useState({
+    applicationsSent: 0,
+    profileViews: 0,
+    interviewsScheduled: 0,
+    jobAlerts: 8,
+  });
+  const [recentApplications, setRecentApplications] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // Fetch stats when profile loads
   useEffect(() => {
-    const loadStats = async () => {
-      if (profile) {
-        setDataLoading(true);
-        const fetchedStats = await fetchCandidateStats();
-        setStats(fetchedStats);
-        setDataLoading(false);
-      } else if (!profileLoading) {
-        setDataLoading(false);
+    if (user) {
+      fetchDashboardData();
+    }
+  }, [user]);
+
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+
+      // Get candidate profile
+      const { data: candidateData, error: candidateError } = await supabase
+        .from('candidates')
+        .select('id')
+        .eq('user_id', user?.id)
+        .single();
+
+      if (candidateError) {
+        console.error('Error fetching candidate:', candidateError);
+        return;
       }
-    };
-    loadStats();
-  }, [profile, profileLoading]);
+
+      // Fetch applications count
+      const { count: applicationsCount } = await supabase
+        .from('applications')
+        .select('*', { count: 'exact', head: true })
+        .eq('candidate_id', candidateData.id);
+
+      // Fetch profile views count
+      const { count: profileViewsCount } = await supabase
+        .from('profile_views')
+        .select('*', { count: 'exact', head: true })
+        .eq('candidate_id', candidateData.id);
+
+      // Fetch interviews scheduled count
+      const { count: interviewsCount } = await supabase
+        .from('applications')
+        .select('*', { count: 'exact', head: true })
+        .eq('candidate_id', candidateData.id)
+        .eq('status', 'interview_scheduled');
+
+      // Fetch recent applications
+      const { data: recentApps } = await supabase
+        .from('applications')
+        .select(`
+          id,
+          status,
+          applied_at,
+          jobs (
+            title,
+            recruiters (
+              company_name
+            )
+          )
+        `)
+        .eq('candidate_id', candidateData.id)
+        .order('applied_at', { ascending: false })
+        .limit(3);
+
+      const formattedApps = (recentApps || []).map((app: any) => ({
+        id: app.id,
+        jobTitle: app.jobs?.title || 'N/A',
+        company: app.jobs?.recruiters?.company_name || 'N/A',
+        status: app.status,
+        appliedAt: new Date(app.applied_at).toISOString().split('T')[0],
+      }));
+
+      setStats({
+        applicationsSent: applicationsCount || 0,
+        profileViews: profileViewsCount || 0,
+        interviewsScheduled: interviewsCount || 0,
+        jobAlerts: 8,
+      });
+
+      setRecentApplications(formattedApps);
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      toast.error('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const dashboardStats = [
+    { title: 'Applications Sent', value: stats.applicationsSent.toString(), icon: FileText },
+    { title: 'Profile Views', value: stats.profileViews.toString(), icon: User },
+    { title: 'Interviews Scheduled', value: stats.interviewsScheduled.toString(), icon: Briefcase },
+    { title: 'Job Alerts', value: stats.jobAlerts.toString(), icon: Search },
+  ];
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -43,19 +126,12 @@ const CandidateDashboard = () => {
     }
   };
 
-  const dashboardStats = [
-    { title: 'Applications Sent', value: stats?.totalApplications || 0, icon: FileText },
-    { title: 'Profile Views', value: stats?.profileViews || 0, icon: User },
-    { title: 'Interviews Scheduled', value: stats?.interviewsScheduled || 0, icon: Briefcase },
-    { title: 'Job Alerts', value: stats?.jobAlerts || 0, icon: Search },
-  ];
-
-  if (profileLoading || dataLoading) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center p-8">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
-          <p>Loading dashboard data...</p>
+          <p>Loading dashboard...</p>
         </div>
       </div>
     );
@@ -80,15 +156,9 @@ const CandidateDashboard = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">{stat.title}</p>
-                    <p className="text-2xl font-bold">{stat.value.toLocaleString()}</p>
+                    <p className="text-2xl font-bold">{stat.value}</p>
                   </div>
-                  <Icon 
-                    className={`h-8 w-8 ${
-                      stat.title === 'Interviews Scheduled' && stat.value > 0 
-                        ? 'text-purple-600' 
-                        : 'text-muted-foreground'
-                    }`} 
-                  />
+                  <Icon className="h-8 w-8 text-muted-foreground" />
                 </div>
               </CardContent>
             </Card>
@@ -116,7 +186,7 @@ const CandidateDashboard = () => {
             </Button>
             <Button variant="outline" onClick={() => navigate('/applications')}>
               <FileText className="h-4 w-4 mr-2" />
-              View Applications
+              My Applications
             </Button>
           </div>
         </CardContent>
@@ -127,13 +197,13 @@ const CandidateDashboard = () => {
         <CardHeader>
           <CardTitle>Recent Applications</CardTitle>
           <CardDescription>
-            Your latest job applications and their status
+            Your latest job applications
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {stats?.recentApplications?.length > 0 ? (
-              stats.recentApplications.map((application) => (
+            {recentApplications.length > 0 ? (
+              recentApplications.map((application: any) => (
                 <div
                   key={application.id}
                   className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors cursor-pointer"
@@ -142,7 +212,7 @@ const CandidateDashboard = () => {
                   <div>
                     <h3 className="font-medium">{application.jobTitle}</h3>
                     <p className="text-sm text-muted-foreground">
-                      {application.company} • Applied {application.appliedAt}
+                      {application.company} • Applied on {application.appliedAt}
                     </p>
                   </div>
                   <span
@@ -155,16 +225,9 @@ const CandidateDashboard = () => {
                 </div>
               ))
             ) : (
-              <div className="text-center py-8">
-                <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-                <p className="text-muted-foreground mb-4">
-                  No applications yet. Start browsing jobs!
-                </p>
-                <Button onClick={() => navigate('/jobs')}>
-                  <Search className="h-4 w-4 mr-2" />
-                  Browse Available Jobs
-                </Button>
-              </div>
+              <p className="text-center text-muted-foreground py-4">
+                No applications yet. Start applying to jobs!
+              </p>
             )}
           </div>
         </CardContent>

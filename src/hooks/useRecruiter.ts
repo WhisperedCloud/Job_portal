@@ -159,74 +159,93 @@ export const useRecruiter = () => {
     }
   };
   
-  // --- NEW FUNCTION: Fetch aggregated stats ---
+  // Function to determine if job is closed based on application_deadline
+  const isJobClosed = (applicationDeadline: string | null) => {
+    if (!applicationDeadline) return false; // No deadline means always active
+    
+    const deadline = new Date(applicationDeadline);
+    deadline.setHours(23, 59, 59, 999); // Set to end of day
+    const now = new Date();
+    
+    return now > deadline;
+  };
+
+  // Fetch aggregated stats with dynamic closed jobs count
   const fetchRecruiterStats = async () => {
     if (!profile?.id) return null;
 
     try {
-      // 1. Fetch all jobs posted by this recruiter
+      console.log('Fetching recruiter stats for profile:', profile.id);
+
+      // Fetch all jobs posted by this recruiter with application_deadline
       const { data: jobsData, error: jobsError } = await supabase
         .from('jobs')
-        .select('id, title, created_at, applications(id, status)') // Added 'title' to the select statement
-        .eq('recruiter_id', profile.id);
+        .select('id, title, created_at, application_deadline, applications(id, status)')
+        .eq('recruiter_id', profile.id)
+        .order('created_at', { ascending: false });
 
-      if (jobsError) throw jobsError;
+      if (jobsError) {
+        console.error('Error fetching jobs:', jobsError);
+        throw jobsError;
+      }
 
-      const now = new Date();
+      console.log('Fetched jobs data:', jobsData);
+
       let totalApplications = 0;
       let activeJobs = 0;
+      let closedJobs = 0;
       let totalApplicationsReviewed = 0;
 
       jobsData.forEach(job => {
-        // Calculate Active/Closed status (2 months active period)
-        const createdDate = new Date(job.created_at);
-        const activeDeadline = new Date(createdDate);
-        activeDeadline.setMonth(createdDate.getMonth() + 2);
-        
-        const status = (now < activeDeadline) ? 'active' : 'closed';
+        // Determine if job is closed based on application_deadline
+        const jobClosed = isJobClosed(job.application_deadline);
 
-        if (status === 'active') {
+        if (jobClosed) {
+          closedJobs++;
+        } else {
           activeJobs++;
         }
         
         // Count total and reviewed applications
         totalApplications += job.applications.length;
         job.applications.forEach(app => {
-          if (app.status === 'under_review' || app.status === 'hired' || app.status === 'rejected') {
+          if (app.status === 'under_review' || app.status === 'hired' || app.status === 'rejected' || app.status === 'interview_scheduled') {
             totalApplicationsReviewed++;
           }
         });
       });
 
+      console.log('Calculated stats:', {
+        totalJobs: jobsData.length,
+        activeJobs,
+        closedJobs,
+        totalApplications,
+        totalApplicationsReviewed
+      });
+
+      // Get recent jobs with their status
+      const recentJobs = jobsData.slice(0, 5).map(job => ({
+        id: job.id,
+        title: job.title,
+        applications: job.applications.length,
+        postedAt: new Date(job.created_at).toLocaleDateString(),
+        status: isJobClosed(job.application_deadline) ? 'closed' : 'active'
+      }));
+
       return {
         totalJobs: jobsData.length,
         activeJobs: activeJobs,
+        closedJobs: closedJobs,
         totalApplications: totalApplications,
         reviewedApplications: totalApplicationsReviewed,
-        recentJobs: jobsData.slice(0, 3).map(job => ({
-            id: job.id,
-            title: job.title,
-            applications: job.applications.length,
-            postedAt: new Date(job.created_at).toLocaleDateString(),
-            status: determineJobStatus(job.created_at) // Reuse the status logic
-        }))
+        recentJobs: recentJobs
       };
     } catch (error) {
       console.error('Error fetching recruiter stats:', error);
+      toast.error('Failed to load statistics');
       return null;
     }
   };
-  
-  // Helper function reused from PostedJobs.tsx logic
-  const determineJobStatus = (createdAt: string | null) => {
-    if (!createdAt) return 'paused'; 
-    const createdDate = new Date(createdAt);
-    const activeDeadline = new Date(createdDate);
-    activeDeadline.setMonth(createdDate.getMonth() + 2);
-    const now = new Date();
-    return (now < activeDeadline) ? 'active' : 'closed';
-  };
-  // --- END NEW FUNCTION ---
 
   return {
     profile,
@@ -234,7 +253,7 @@ export const useRecruiter = () => {
     updateProfile,
     uploadFile,
     createJob,
-    fetchRecruiterStats, // Expose the new stats fetcher
+    fetchRecruiterStats,
     refetch: fetchProfile
   };
 };
