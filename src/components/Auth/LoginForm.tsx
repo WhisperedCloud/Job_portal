@@ -5,12 +5,13 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { Briefcase } from 'lucide-react';
+import { Briefcase, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '../ui/use-toast';
 
 const LoginForm = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -28,45 +29,6 @@ const LoginForm = () => {
       setLoading(false);
     }
   };
-
-  const handleDemoLogin = (role: 'candidate' | 'recruiter' | 'admin') => {
-    // Demo login - bypass authentication and go directly to dashboard
-    const mockUser = {
-      id: `demo-${role}`,
-      email: `${role}@demo.com`,
-      role: role,
-      created_at: new Date().toISOString(),
-    };
-    
-    // Store demo user in localStorage for demo purposes
-    localStorage.setItem('demoUser', JSON.stringify(mockUser));
-    
-    toast({
-      title: "Demo Login",
-      description: `Logged in as ${role} demo user`,
-    });
-    
-    // Navigate directly to dashboard - the updated AuthContext will handle the demo user
-    navigate('/dashboard', { replace: true });
-  };
-
-  const demoUsers = [
-    {
-      email: 'candidate@demo.com',
-      role: 'Candidate',
-      onClick: () => handleDemoLogin('candidate')
-    },
-    {
-      email: 'recruiter@demo.com',
-      role: 'Recruiter',
-      onClick: () => handleDemoLogin('recruiter')
-    },
-    {
-      email: 'admin@demo.com',
-      role: 'Admin',
-      onClick: () => handleDemoLogin('admin')
-    }
-  ];
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -104,36 +66,35 @@ const LoginForm = () => {
               
               <div>
                 <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  placeholder="Enter your password"
-                />
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    placeholder="Enter your password"
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
               </div>
 
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? 'Signing in...' : 'Sign in'}
               </Button>
             </form>
-
-            <div className="mt-6">
-              <div className="text-sm text-gray-600 mb-3">Demo accounts:</div>
-              <div className="space-y-2">
-                {demoUsers.map((user) => (
-                  <button
-                    key={user.email}
-                    onClick={user.onClick}
-                    className="w-full text-left p-2 text-sm bg-gray-50 hover:bg-gray-100 rounded border"
-                  >
-                    <div className="font-medium">{user.role}</div>
-                    <div className="text-gray-500">{user.email}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
 
             <div className="mt-6 text-center">
               <span className="text-sm text-gray-600">

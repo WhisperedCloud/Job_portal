@@ -18,6 +18,9 @@ export type Database = {
           job_id: string
           status: string | null
           updated_at: string | null
+          interview_date: string | null
+          interview_location: string | null
+          interview_notes: string | null
         }
         Insert: {
           applied_at?: string | null
@@ -27,6 +30,9 @@ export type Database = {
           job_id: string
           status?: string | null
           updated_at?: string | null
+          interview_date?: string | null
+          interview_location?: string | null
+          interview_notes?: string | null
         }
         Update: {
           applied_at?: string | null
@@ -36,6 +42,9 @@ export type Database = {
           job_id?: string
           status?: string | null
           updated_at?: string | null
+          interview_date?: string | null
+          interview_location?: string | null
+          interview_notes?: string | null
         }
         Relationships: [
           {
@@ -115,6 +124,11 @@ export type Database = {
           skills_required: string[] | null
           title: string
           updated_at: string | null
+          application_deadline: string | null
+          company_name: string | null
+          job_type: string | null
+          salary_range: string | null
+          contact_email: string | null
         }
         Insert: {
           created_at?: string | null
@@ -128,6 +142,11 @@ export type Database = {
           skills_required?: string[] | null
           title: string
           updated_at?: string | null
+          application_deadline?: string | null
+          company_name?: string | null
+          job_type?: string | null
+          salary_range?: string | null
+          contact_email?: string | null
         }
         Update: {
           created_at?: string | null
@@ -141,6 +160,11 @@ export type Database = {
           skills_required?: string[] | null
           title?: string
           updated_at?: string | null
+          application_deadline?: string | null
+          company_name?: string | null
+          job_type?: string | null
+          salary_range?: string | null
+          contact_email?: string | null
         }
         Relationships: [
           {
@@ -215,6 +239,142 @@ export type Database = {
         }
         Relationships: []
       }
+      users: {
+        Row: {
+          id: string
+          email: string | null
+          role: string | null
+          created_at: string | null
+          last_sign_in_at: string | null
+        }
+        Insert: {
+          id: string
+          email?: string | null
+          role?: string | null
+          created_at?: string | null
+          last_sign_in_at?: string | null
+        }
+        Update: {
+          id?: string
+          email?: string | null
+          role?: string | null
+          created_at?: string | null
+          last_sign_in_at?: string | null
+        }
+        Relationships: []
+      }
+      analysis_results: {
+        Row: {
+          id: string
+          application_id: string
+          overall_match_score: number | null
+          key_skills_matched: string[] | null
+          missing_skills: string[] | null
+          summary: string | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          application_id: string
+          overall_match_score?: number | null
+          key_skills_matched?: string[] | null
+          missing_skills?: string[] | null
+          summary?: string | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          application_id?: string
+          overall_match_score?: number | null
+          key_skills_matched?: string[] | null
+          missing_skills?: string[] | null
+          summary?: string | null
+          created_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_results_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "applications"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      profile_views: {
+        Row: {
+          id: string
+          candidate_id: string
+          recruiter_id: string
+          viewed_at: string | null
+          view_date: string | null
+        }
+        Insert: {
+          id?: string
+          candidate_id: string
+          recruiter_id: string
+          viewed_at?: string | null
+          view_date?: string | null
+        }
+        Update: {
+          id?: string
+          candidate_id?: string
+          recruiter_id?: string
+          viewed_at?: string | null
+          view_date?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profile_views_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profile_views_recruiter_id_fkey"
+            columns: ["recruiter_id"]
+            isOneToOne: false
+            referencedRelation: "recruiters"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      platform_settings: {
+        Row: {
+          id: string
+          setting_key: string
+          setting_value: Json
+          category: string
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          id?: string
+          setting_key: string
+          setting_value: Json
+          category: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          id?: string
+          setting_key?: string
+          setting_value?: Json
+          category?: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_settings_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -226,7 +386,7 @@ export type Database = {
       }
     }
     Enums: {
-      application_status: "applied" | "under_review" | "rejected" | "hired"
+      application_status: "applied" | "under_review" | "rejected" | "hired" | "interview_scheduled"
       experience_level: "fresher" | "experienced"
       user_role: "candidate" | "recruiter" | "admin"
     }
@@ -344,7 +504,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      application_status: ["applied", "under_review", "rejected", "hired"],
+      application_status: ["applied", "under_review", "rejected", "hired", "interview_scheduled"],
       experience_level: ["fresher", "experienced"],
       user_role: ["candidate", "recruiter", "admin"],
     },

@@ -1,4 +1,5 @@
 // supabase/functions/analyze-resume/index.ts
+
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -38,25 +39,33 @@ serve(async (req) => {
     );
   }
 
-  const { resumeText, jobDescription, applicationId } = body;
+  const { resumeBase64, mimeType, jobDescription, applicationId } = body;
   
-  if (!resumeText || !jobDescription) {
+  if (!resumeBase64 || !jobDescription) {
     return new Response(
-      JSON.stringify({ error: "Missing resumeText or jobDescription" }), 
+      JSON.stringify({ error: "Missing resumeBase64 or jobDescription" }), 
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 
   try {
-    const prompt = `You are a technical recruiter. Evaluate this candidate's resume against the following job description.
+    console.log(`Resume base64 length: ${resumeBase64.length}`);
+    console.log(`Job description length: ${jobDescription.length}`);
+    console.log(`MIME type: ${mimeType}`);
+
+    const prompt = `You are a technical recruiter. Analyze the resume document in the image/PDF and evaluate the candidate against the following job description.
       
 **Job Description:**
 ${jobDescription}
 
-**Resume Text:**
-${resumeText}
+**Instructions:**
+1. Extract all text, skills, experience, and qualifications from the resume document
+2. Compare the candidate's qualifications with the job requirements
+3. Provide a match score from 0-100
+4. List matched skills and missing skills
+5. Write a brief summary about the candidate's fit
 
-Return a JSON object with the following structure, and no other text or explanation:
+Return ONLY a JSON object with this exact structure (no markdown, no explanation):
 {
   "overallMatchScore": number (0-100),
   "keySkillsMatched": string[],
@@ -66,16 +75,26 @@ Return a JSON object with the following structure, and no other text or explanat
 
     console.log("Sending request to Gemini API...");
     
-    const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`;
     
     const response = await fetch(GEMINI_API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
+        contents: [{
+          parts: [
+            { text: prompt },
+            {
+              inline_data: {
+                mime_type: mimeType || "application/pdf",
+                data: resumeBase64
+              }
+            }
+          ]
+        }],
         generationConfig: {
           temperature: 0.2,
-          maxOutputTokens: 2048,
+          maxOutputTokens: 1048576,
         },
       }),
     });
@@ -87,12 +106,26 @@ Return a JSON object with the following structure, and no other text or explanat
     }
 
     const data = await response.json();
-    const analysisText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    console.log("Gemini response structure:", JSON.stringify(data, null, 2));
+    
+    const candidate = data.candidates?.[0];
+    const finishReason = candidate?.finishReason;
+    
+    console.log(`Finish reason: ${finishReason}`);
+    
+    if (finishReason === "MAX_TOKENS") {
+      console.error("Gemini response exceeded MAX_TOKENS limit");
+      throw new Error("Response too long. Try with a shorter resume or job description.");
+    }
+    
+    const analysisText = candidate?.content?.parts?.[0]?.text;
 
     if (!analysisText) {
-      console.error("Invalid Gemini response:", data);
+      console.error("Invalid Gemini response - no analysis text:", JSON.stringify(data));
       throw new Error("Could not find analysis in Gemini response");
     }
+
+    console.log("Raw analysis text:", analysisText);
 
     // Parse the JSON response
     let analysisJson;
@@ -100,6 +133,7 @@ Return a JSON object with the following structure, and no other text or explanat
       // Remove markdown code blocks if present
       const cleanedText = analysisText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       analysisJson = JSON.parse(cleanedText);
+      console.log("Parsed analysis JSON:", analysisJson);
     } catch (parseError) {
       console.error("Failed to parse Gemini response:", analysisText);
       throw new Error("Failed to parse analysis result");
@@ -110,7 +144,7 @@ Return a JSON object with the following structure, and no other text or explanat
 
     // Store the result in Supabase
     const insertData: any = {
-      resume_text: resumeText.substring(0, 5000), // Limit text length
+      resume_text: "Analyzed from PDF document",
       job_description: jobDescription.substring(0, 5000),
       overall_match_score: analysisJson.overallMatchScore,
       key_skills_matched: analysisJson.keySkillsMatched,
@@ -134,6 +168,8 @@ Return a JSON object with the following structure, and no other text or explanat
       throw new Error(`Failed to store data: ${supabaseError.message}`);
     }
 
+    console.log("Analysis completed successfully!");
+    
     return new Response(
       JSON.stringify(supabaseData), 
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
