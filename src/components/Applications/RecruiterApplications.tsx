@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -10,8 +10,9 @@ import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { 
   User, FileText, Calendar, Mail, Phone, MapPin, Download, 
-  Eye, Loader2, TrendingUp, CheckCircle, XCircle, Sparkles, Calendar as CalendarIcon,
-  Briefcase, GraduationCap, Award
+  Eye, Loader2, TrendingUp, CheckCircle, XCircle, Sparkles, 
+  Calendar as CalendarIcon, Briefcase, GraduationCap, Award,
+  Video, Clock, RotateCcw, MapPinIcon
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -25,12 +26,19 @@ interface Application {
   applied_at: string;
   cover_letter?: string;
   interview_date?: string;
-  interview_location?: string;
+  interview_time?: string;
+  interview_venue?: string;
+  interview_mode?: string;
+  interview_link?: string;
   interview_notes?: string;
+  interview_scheduled_at?: string;
+  interview_rescheduled_count?: number;
+  reschedule_reason?: string;
   job?: {
     id: string;
     title: string;
     job_description: string;
+    company_name?: string;
   };
   candidate?: {
     id: string;
@@ -66,14 +74,19 @@ const RecruiterApplications = () => {
   const [sortByScore, setSortByScore] = useState(false);
   const [isInterviewModalOpen, setIsInterviewModalOpen] = useState(false);
   const [selectedApplication, setSelectedApplication] = useState<Application | null>(null);
+  const [isReschedule, setIsReschedule] = useState(false);
   const [interviewData, setInterviewData] = useState({
     interview_date: '',
     interview_time: '',
-    interview_location: '',
+    interview_mode: 'video',
+    interview_venue: '',
+    interview_link: '',
     interview_notes: '',
+    reschedule_reason: ''
   });
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [selectedCandidate, setSelectedCandidate] = useState<Application['candidate'] | null>(null);
+  const [schedulingInterview, setSchedulingInterview] = useState(false);
 
   useEffect(() => {
     fetchApplications();
@@ -83,7 +96,6 @@ const RecruiterApplications = () => {
     try {
       setLoading(true);
       
-      // Get recruiter profile
       const { data: recruiterData, error: recruiterError } = await supabase
         .from('recruiters')
         .select('id')
@@ -92,7 +104,6 @@ const RecruiterApplications = () => {
 
       if (recruiterError) throw recruiterError;
 
-      // Fetch applications for this recruiter's jobs
       const { data, error } = await supabase
         .from('applications')
         .select(`
@@ -101,6 +112,7 @@ const RecruiterApplications = () => {
             id,
             title,
             job_description,
+            company_name,
             recruiter_id
           ),
           candidate:candidates (
@@ -121,7 +133,6 @@ const RecruiterApplications = () => {
 
       if (error) throw error;
 
-      // Fetch analysis results for each application
       const appsWithAnalysis = await Promise.all(
         (data || []).map(async (app) => {
           const { data: analysisData } = await supabase
@@ -157,8 +168,6 @@ const RecruiterApplications = () => {
     try {
       setAnalyzing(application.id);
       
-      console.log('Step 1: Extracting text from resume...');
-      
       const resumeResponse = await fetch(application.candidate.resume_url);
       
       if (!resumeResponse.ok) {
@@ -177,13 +186,9 @@ const RecruiterApplications = () => {
         reader.readAsDataURL(blob);
       });
 
-      console.log(`Extracted resume text length: ${base64Resume.length}`);
-
       if (!base64Resume || base64Resume.length === 0) {
-        throw new Error('Could not extract text from resume. The file may be empty or corrupted.');
+        throw new Error('Could not extract text from resume.');
       }
-
-      console.log('Step 2: Calling analyze-resume edge function...');
 
       const { data, error } = await supabase.functions.invoke('analyze-resume', {
         body: {
@@ -196,13 +201,11 @@ const RecruiterApplications = () => {
 
       if (error) throw error;
 
-      console.log('✅ Analysis completed successfully!');
       toast.success('Resume analyzed successfully!');
-      
       await fetchApplications();
       
     } catch (error: any) {
-      console.error('❌ Error in analyzeResume:', error);
+      console.error('Error in analyzeResume:', error);
       toast.error(`Failed to analyze resume: ${error.message}`);
       throw error;
     } finally {
@@ -234,7 +237,6 @@ const RecruiterApplications = () => {
         await analyzeResume(app);
         successCount++;
       } catch (error) {
-        console.error(`Failed to analyze resume for ${app.candidate?.name}:`, error);
         failCount++;
       }
       
@@ -243,51 +245,131 @@ const RecruiterApplications = () => {
 
     setAnalyzingAll(false);
     setAnalysisProgress({ current: 0, total: 0 });
-    
     setSortByScore(true);
     
     toast.success(
-      `Analysis complete! ${successCount} resumes analyzed successfully${failCount > 0 ? `, ${failCount} failed` : ''}.`
+      `Analysis complete! ${successCount} resumes analyzed${failCount > 0 ? `, ${failCount} failed` : ''}.`
     );
 
     await fetchApplications();
   };
 
+  const openScheduleDialog = (application: Application, reschedule: boolean = false) => {
+    setSelectedApplication(application);
+    setIsReschedule(reschedule);
+    
+    if (reschedule && application.interview_date && application.interview_time) {
+      setInterviewData({
+        interview_date: application.interview_date,
+        interview_time: application.interview_time,
+        interview_mode: application.interview_mode || 'video',
+        interview_venue: application.interview_venue || '',
+        interview_link: application.interview_link || '',
+        interview_notes: application.interview_notes || '',
+        reschedule_reason: ''
+      });
+    } else {
+      setInterviewData({
+        interview_date: '',
+        interview_time: '',
+        interview_mode: 'video',
+        interview_venue: '',
+        interview_link: '',
+        interview_notes: '',
+        reschedule_reason: ''
+      });
+    }
+    
+    setIsInterviewModalOpen(true);
+  };
+
   const scheduleInterview = async () => {
     if (!selectedApplication || !interviewData.interview_date || !interviewData.interview_time) {
-      toast.error('Please fill in all required fields');
+      toast.error('Please fill in date and time');
+      return;
+    }
+
+    if (interviewData.interview_mode === 'in-person' && !interviewData.interview_venue) {
+      toast.error('Please enter venue for in-person interview');
+      return;
+    }
+
+    if (interviewData.interview_mode === 'video' && !interviewData.interview_link) {
+      toast.error('Please enter meeting link for video interview');
       return;
     }
 
     try {
-      const interviewDateTime = new Date(`${interviewData.interview_date}T${interviewData.interview_time}`);
+      setSchedulingInterview(true);
 
-      const { error } = await supabase
+      const updateData: any = {
+        interview_date: interviewData.interview_date,
+        interview_time: interviewData.interview_time,
+        interview_mode: interviewData.interview_mode,
+        interview_venue: interviewData.interview_venue,
+        interview_link: interviewData.interview_link,
+        interview_notes: interviewData.interview_notes,
+        interview_scheduled_at: new Date().toISOString(),
+        status: 'interview_scheduled',
+        updated_at: new Date().toISOString()
+      };
+
+      if (isReschedule) {
+        updateData.interview_rescheduled_count = (selectedApplication.interview_rescheduled_count || 0) + 1;
+        updateData.reschedule_reason = interviewData.reschedule_reason;
+      }
+
+      const { error: updateError } = await supabase
         .from('applications')
-        .update({
-          status: 'interview_scheduled',
-          interview_date: interviewDateTime.toISOString(),
-          interview_location: interviewData.interview_location,
-          interview_notes: interviewData.interview_notes,
-          updated_at: new Date().toISOString()
-        })
+        .update(updateData)
         .eq('id', selectedApplication.id);
 
-      if (error) throw error;
+      if (updateError) throw updateError;
 
-      toast.success('Interview scheduled successfully!');
+      // Send notification to candidate
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      try {
+        const response = await fetch(
+          `${supabase}/functions/v1/send-interview-notification`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session?.access_token}`,
+            },
+            body: JSON.stringify({
+              candidateId: selectedApplication.candidate_id,
+              applicationId: selectedApplication.id,
+              interviewDate: interviewData.interview_date,
+              interviewTime: interviewData.interview_time,
+              interviewVenue: interviewData.interview_venue,
+              interviewMode: interviewData.interview_mode,
+              interviewLink: interviewData.interview_link,
+              isReschedule,
+              rescheduleReason: interviewData.reschedule_reason
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          console.error('Failed to send notification');
+        }
+      } catch (notifError) {
+        console.error('Notification error:', notifError);
+        // Don't fail the whole operation if notification fails
+      }
+
+      toast.success(isReschedule ? 'Interview rescheduled successfully!' : 'Interview scheduled successfully!');
       setIsInterviewModalOpen(false);
       setSelectedApplication(null);
-      setInterviewData({
-        interview_date: '',
-        interview_time: '',
-        interview_location: '',
-        interview_notes: '',
-      });
       await fetchApplications();
-    } catch (error) {
+
+    } catch (error: any) {
       console.error('Error scheduling interview:', error);
       toast.error('Failed to schedule interview');
+    } finally {
+      setSchedulingInterview(false);
     }
   };
 
@@ -300,7 +382,7 @@ const RecruiterApplications = () => {
 
       if (error) throw error;
 
-      toast.success(`Application ${status}`);
+      toast.success(`Application ${status.replace('_', ' ')}`);
       await fetchApplications();
     } catch (error) {
       console.error('Error updating status:', error);
@@ -312,21 +394,12 @@ const RecruiterApplications = () => {
     setSelectedCandidate(candidate);
     setIsProfileModalOpen(true);
 
-    // Track profile view
     try {
-      console.log('=== Tracking Profile View ===');
-      console.log('User ID:', user?.id);
-      console.log('Candidate ID:', candidateId);
-
-      // Get recruiter profile
       const { data: recruiterData, error: recruiterError } = await supabase
         .from('recruiters')
         .select('id')
         .eq('user_id', user?.id)
         .single();
-
-      console.log('Recruiter Data:', recruiterData);
-      console.log('Recruiter Error:', recruiterError);
 
       if (recruiterError) {
         console.error('Error fetching recruiter:', recruiterError);
@@ -334,35 +407,19 @@ const RecruiterApplications = () => {
       }
 
       if (recruiterData && candidateId) {
-        console.log('Inserting profile view...');
-        console.log('Candidate ID:', candidateId);
-        console.log('Recruiter ID:', recruiterData.id);
-
-        // Insert profile view
-        const { data: insertData, error: insertError } = await supabase
+        const { error: insertError } = await supabase
           .from('profile_views')
           .insert({
             candidate_id: candidateId,
             recruiter_id: recruiterData.id
-          })
-          .select();
+          });
 
-        console.log('Insert Data:', insertData);
-        console.log('Insert Error:', insertError);
-
-        if (insertError) {
-          // Ignore duplicate constraint errors (same recruiter viewing same profile on same day)
-          if (insertError.code === '23505') {
-            console.log('Profile already viewed today');
-          } else {
-            console.error('Error inserting profile view:', insertError);
-          }
-        } else {
-          console.log('✅ Profile view tracked successfully!');
+        if (insertError && insertError.code !== '23505') {
+          console.error('Error inserting profile view:', insertError);
         }
       }
     } catch (error) {
-      console.error('❌ Error in viewCandidateProfile:', error);
+      console.error('Error in viewCandidateProfile:', error);
     }
   };
 
@@ -381,12 +438,6 @@ const RecruiterApplications = () => {
       default:
         return 'bg-gray-100 text-gray-800';
     }
-  };
-
-  const getScoreColor = (score: number) => {
-    if (score >= 80) return 'text-green-600';
-    if (score >= 60) return 'text-yellow-600';
-    return 'text-red-600';
   };
 
   const getScoreBadge = (score: number) => {
@@ -565,10 +616,7 @@ const RecruiterApplications = () => {
                           <Button 
                             size="sm" 
                             variant="default"
-                            onClick={() => {
-                              setSelectedApplication(application);
-                              setIsInterviewModalOpen(true);
-                            }}
+                            onClick={() => openScheduleDialog(application, false)}
                           >
                             <CalendarIcon className="h-4 w-4 mr-2" />
                             Schedule Interview
@@ -587,10 +635,7 @@ const RecruiterApplications = () => {
                           <Button 
                             size="sm" 
                             variant="default"
-                            onClick={() => {
-                              setSelectedApplication(application);
-                              setIsInterviewModalOpen(true);
-                            }}
+                            onClick={() => openScheduleDialog(application, false)}
                           >
                             <CalendarIcon className="h-4 w-4 mr-2" />
                             Schedule Interview
@@ -612,6 +657,14 @@ const RecruiterApplications = () => {
                       )}
                       {application.status === 'interview_scheduled' && (
                         <>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => openScheduleDialog(application, true)}
+                          >
+                            <RotateCcw className="h-4 w-4 mr-2" />
+                            Reschedule
+                          </Button>
                           <Button 
                             size="sm" 
                             variant="outline"
@@ -637,22 +690,72 @@ const RecruiterApplications = () => {
                       <div className="flex items-center gap-2 mb-2">
                         <CalendarIcon className="h-5 w-5 text-purple-600" />
                         <span className="font-semibold text-purple-900">Interview Scheduled</span>
+                        {application.interview_rescheduled_count && application.interview_rescheduled_count > 0 && (
+                          <Badge variant="secondary" className="text-xs">
+                            Rescheduled {application.interview_rescheduled_count}x
+                          </Badge>
+                        )}
                       </div>
                       <div className="grid grid-cols-2 gap-3 text-sm">
                         <div>
-                          <p className="text-muted-foreground">Date & Time</p>
-                          <p className="font-medium">{new Date(application.interview_date).toLocaleString()}</p>
+                          <p className="text-muted-foreground flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            Date
+                          </p>
+                          <p className="font-medium">
+                            {new Date(application.interview_date).toLocaleDateString('en-US', { 
+                              weekday: 'long', 
+                              year: 'numeric', 
+                              month: 'long', 
+                              day: 'numeric' 
+                            })}
+                          </p>
                         </div>
-                        {application.interview_location && (
-                          <div>
-                            <p className="text-muted-foreground">Location</p>
-                            <p className="font-medium">{application.interview_location}</p>
+                        <div>
+                          <p className="text-muted-foreground flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            Time
+                          </p>
+                          <p className="font-medium">{application.interview_time}</p>
+                        </div>
+                        {application.interview_mode === 'in-person' && application.interview_venue && (
+                          <div className="col-span-2">
+                            <p className="text-muted-foreground flex items-center gap-1">
+                              <MapPinIcon className="h-3 w-3" />
+                              Venue
+                            </p>
+                            <p className="font-medium">{application.interview_venue}</p>
+                          </div>
+                        )}
+                        {application.interview_mode === 'video' && application.interview_link && (
+                          <div className="col-span-2">
+                            <p className="text-muted-foreground flex items-center gap-1">
+                              <Video className="h-3 w-3" />
+                              Video Call
+                            </p>
+                            <a 
+                              href={application.interview_link} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="font-medium text-blue-600 underline"
+                            >
+                              Join Meeting
+                            </a>
+                          </div>
+                        )}
+                        {application.interview_mode === 'phone' && (
+                          <div className="col-span-2">
+                            <p className="text-muted-foreground flex items-center gap-1">
+                              <Phone className="h-3 w-3" />
+                              Mode
+                            </p>
+                            <p className="font-medium">Phone Interview</p>
                           </div>
                         )}
                         {application.interview_notes && (
                           <div className="col-span-2">
                             <p className="text-muted-foreground">Notes</p>
-                            <p className="font-medium">{application.interview_notes}</p>
+                            <p className="font-medium text-sm">{application.interview_notes}</p>
                           </div>
                         )}
                       </div>
@@ -838,59 +941,169 @@ const RecruiterApplications = () => {
 
       {/* Interview Scheduling Modal */}
       <Dialog open={isInterviewModalOpen} onOpenChange={setIsInterviewModalOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Schedule Interview</DialogTitle>
+            <DialogTitle className="text-2xl">
+              {isReschedule ? '📅 Reschedule Interview' : '📅 Schedule Interview'}
+            </DialogTitle>
             <DialogDescription>
-              Set up an interview with {selectedApplication?.candidate?.name}
+              {selectedApplication?.candidate?.name} • {selectedApplication?.job?.title}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="interview_date">Interview Date *</Label>
-              <Input
-                id="interview_date"
-                type="date"
-                value={interviewData.interview_date}
-                onChange={(e) => setInterviewData({ ...interviewData, interview_date: e.target.value })}
-                min={new Date().toISOString().split('T')[0]}
-              />
+
+          <div className="space-y-6 py-4">
+            {/* Date and Time */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="interview_date" className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4" />
+                  Interview Date *
+                </Label>
+                <Input
+                  id="interview_date"
+                  type="date"
+                  value={interviewData.interview_date}
+                  onChange={(e) => setInterviewData({ ...interviewData, interview_date: e.target.value })}
+                  min={new Date().toISOString().split('T')[0]}
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="interview_time" className="flex items-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  Interview Time *
+                </Label>
+                <Input
+                  id="interview_time"
+                  type="time"
+                  value={interviewData.interview_time}
+                  onChange={(e) => setInterviewData({ ...interviewData, interview_time: e.target.value })}
+                />
+              </div>
             </div>
+
+            {/* Interview Mode */}
             <div>
-              <Label htmlFor="interview_time">Interview Time *</Label>
-              <Input
-                id="interview_time"
-                type="time"
-                value={interviewData.interview_time}
-                onChange={(e) => setInterviewData({ ...interviewData, interview_time: e.target.value })}
-              />
+              <Label htmlFor="interview_mode">Interview Mode *</Label>
+              <Select
+                value={interviewData.interview_mode}
+                onValueChange={(value) => setInterviewData({ ...interviewData, interview_mode: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="video">
+                    <div className="flex items-center gap-2">
+                      <Video className="h-4 w-4" />
+                      Video Call
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="in-person">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4" />
+                      In-Person
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="phone">
+                    <div className="flex items-center gap-2">
+                      <Phone className="h-4 w-4" />
+                      Phone Interview
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+
+            {/* Venue (for in-person) */}
+            {interviewData.interview_mode === 'in-person' && (
+              <div>
+                <Label htmlFor="interview_venue" className="flex items-center gap-2">
+                  <MapPin className="h-4 w-4" />
+                  Venue/Address *
+                </Label>
+                <Input
+                  id="interview_venue"
+                  placeholder="Enter the interview location"
+                  value={interviewData.interview_venue}
+                  onChange={(e) => setInterviewData({ ...interviewData, interview_venue: e.target.value })}
+                />
+              </div>
+            )}
+
+            {/* Meeting Link (for video) */}
+            {interviewData.interview_mode === 'video' && (
+              <div>
+                <Label htmlFor="interview_link" className="flex items-center gap-2">
+                  <Video className="h-4 w-4" />
+                  Meeting Link *
+                </Label>
+                <Input
+                  id="interview_link"
+                  type="url"
+                  placeholder="https://meet.google.com/xxx-xxxx-xxx"
+                  value={interviewData.interview_link}
+                  onChange={(e) => setInterviewData({ ...interviewData, interview_link: e.target.value })}
+                />
+              </div>
+            )}
+
+            {/* Interview Notes */}
             <div>
-              <Label htmlFor="interview_location">Location / Meeting Link</Label>
-              <Input
-                id="interview_location"
-                placeholder="Office address or video call link"
-                value={interviewData.interview_location}
-                onChange={(e) => setInterviewData({ ...interviewData, interview_location: e.target.value })}
-              />
-            </div>
-            <div>
-              <Label htmlFor="interview_notes">Notes (Optional)</Label>
+              <Label htmlFor="interview_notes">Additional Notes (Optional)</Label>
               <Textarea
                 id="interview_notes"
-                placeholder="Additional instructions for the candidate"
+                placeholder="Any additional information for the candidate..."
                 value={interviewData.interview_notes}
                 onChange={(e) => setInterviewData({ ...interviewData, interview_notes: e.target.value })}
                 rows={3}
               />
             </div>
+
+            {/* Reschedule Reason */}
+            {isReschedule && (
+              <div>
+                <Label htmlFor="reschedule_reason">Reason for Rescheduling</Label>
+                <Textarea
+                  id="reschedule_reason"
+                  placeholder="Please provide a reason for rescheduling..."
+                  value={interviewData.reschedule_reason}
+                  onChange={(e) => setInterviewData({ ...interviewData, reschedule_reason: e.target.value })}
+                  rows={2}
+                />
+              </div>
+            )}
+
+            {/* Summary Preview */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h4 className="font-semibold text-blue-900 mb-2">📋 Interview Summary</h4>
+              <div className="space-y-1 text-sm text-blue-800">
+                <p>📅 Date: {interviewData.interview_date ? new Date(interviewData.interview_date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'Not set'}</p>
+                <p>🕒 Time: {interviewData.interview_time || 'Not set'}</p>
+                <p>💼 Mode: {interviewData.interview_mode === 'video' ? '💻 Video Call' : interviewData.interview_mode === 'in-person' ? '📍 In-Person' : '📞 Phone'}</p>
+                {interviewData.interview_mode === 'in-person' && interviewData.interview_venue && (
+                  <p>📍 Venue: {interviewData.interview_venue}</p>
+                )}
+                {interviewData.interview_mode === 'video' && interviewData.interview_link && (
+                  <p>🔗 Link: {interviewData.interview_link}</p>
+                )}
+              </div>
+            </div>
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsInterviewModalOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={scheduleInterview}>
-              Schedule Interview
+            <Button onClick={scheduleInterview} disabled={schedulingInterview}>
+              {schedulingInterview ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Scheduling...
+                </>
+              ) : (
+                isReschedule ? 'Reschedule Interview' : 'Schedule Interview'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
