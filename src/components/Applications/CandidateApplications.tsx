@@ -121,16 +121,33 @@ const CandidateApplications = () => {
     try {
       const now = new Date();
       
+      // Only check applications that are still marked as "interview_scheduled"
       const missedApplications = applications.filter(app => {
+        // Interview is "missed" only if:
+        // 1. Status is still "interview_scheduled" (candidate hasn't responded/attended)
+        // 2. Interview date and time exist
+        // 3. The interview datetime has passed
         if (app.status === 'interview_scheduled' && app.interview_date && app.interview_time) {
           const interviewDateTime = getInterviewDateTime(app.interview_date, app.interview_time);
-          return interviewDateTime < now;
+          
+          // Check if interview time has passed
+          const isPast = interviewDateTime < now;
+          
+          if (isPast) {
+            console.log(`Interview has passed for application ${app.id}:`, {
+              interviewDateTime: interviewDateTime.toISOString(),
+              now: now.toISOString(),
+              title: app.job?.title
+            });
+          }
+          
+          return isPast;
         }
         return false;
       });
 
       if (missedApplications.length > 0) {
-        console.log('Found missed interviews:', missedApplications.length);
+        console.log('Found missed interviews (candidates did not attend):', missedApplications.length);
         
         for (const app of missedApplications) {
           const { error } = await supabase
@@ -139,7 +156,8 @@ const CandidateApplications = () => {
               status: 'missed_interview',
               updated_at: new Date().toISOString()
             })
-            .eq('id', app.id);
+            .eq('id', app.id)
+            .eq('status', 'interview_scheduled'); // Only update if still scheduled
 
           if (error) {
             console.error('Error updating missed interview:', error);
@@ -151,6 +169,7 @@ const CandidateApplications = () => {
           }
         }
         
+        // Refresh applications list
         await fetchApplications();
       }
     } catch (error) {
@@ -408,7 +427,7 @@ const CandidateApplications = () => {
                           <div className="flex-1">
                             <h4 className="font-bold text-orange-900 mb-2 text-lg">⚠️ Missed Interview</h4>
                             <p className="text-sm text-orange-800 mb-3">
-                              You missed your scheduled interview:
+                              You did not attend your scheduled interview:
                             </p>
                             <div className="space-y-2 bg-white p-3 rounded border border-orange-200">
                               <p className="font-semibold text-orange-900 flex items-center gap-2">
@@ -447,8 +466,8 @@ const CandidateApplications = () => {
                       </div>
                     )}
 
-                    {/* Interview Details Section */}
-                    {hasInterview && !isMissed && (
+                    {/* Interview Details Section - Only show for upcoming interviews */}
+                    {hasInterview && !isMissed && timeUntil !== 'Past' && (
                       <div className="bg-purple-50 border-2 border-purple-200 rounded-lg p-4">
                         <h4 className="font-semibold text-purple-900 mb-3 flex items-center gap-2">
                           <Calendar className="h-5 w-5" />
