@@ -22,7 +22,7 @@ const RegisterForm = () => {
   const { toast } = useToast();
 
   // Admin verification code (in production, this should be in environment variables)
-  const ADMIN_SECRET_CODE = 'JOBPORTAL_ADMIN_2024';
+  const ADMIN_SECRET_CODE = 'JOBPORTAL_ADMIN_2025';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

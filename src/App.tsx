@@ -19,6 +19,10 @@ import Users from "./pages/Users";
 import AllApplications from "./pages/AllApplications";
 import Settings from "./pages/Settings";
 import ApplicationsMonitor from "./pages/ApplicationsMonitor";
+import ResetPassword from './pages/ResetPassword';
+
+
+
 
 const queryClient = new QueryClient();
 
@@ -89,6 +93,10 @@ const AppRoutes = () => {
           </ProtectedRoute>
         } 
       />
+      <Route 
+        path="/reset-password" 
+        element={<ResetPassword />} 
+        />
       <Route 
         path="/all-applications" 
         element={

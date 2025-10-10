@@ -7,20 +7,21 @@ import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../components/ui/dialog';
 import Navbar from '../components/Layout/Navbar';
 import Sidebar from '../components/Layout/Sidebar';
 import { useNavigate } from 'react-router-dom';
-import { X, Plus } from 'lucide-react';
+import { X, Plus, Eye, Briefcase, MapPin, Clock, DollarSign, CheckCircle2 } from 'lucide-react';
 import { useRecruiter } from '@/hooks/useRecruiter';
 
 const CreateJob = () => {
   const { user } = useAuth();
   const { createJob } = useRecruiter();
   const navigate = useNavigate();
-  const [step, setStep] = useState(1);
   const [skills, setSkills] = useState<string[]>([]);
   const [currentSkill, setCurrentSkill] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -57,6 +58,27 @@ const CreateJob = () => {
       addSkill();
     }
   };
+
+  // Calculate form completion percentage
+  const calculateProgress = () => {
+    const requiredFields = [
+      formData.title,
+      formData.company_name,
+      formData.location,
+      formData.job_type,
+      formData.qualification,
+      formData.experience_level,
+      formData.job_description,
+      formData.contact_email,
+    ];
+    
+    const filledFields = requiredFields.filter(field => field.trim() !== '').length;
+    const totalFields = requiredFields.length;
+    
+    return Math.round((filledFields / totalFields) * 100);
+  };
+
+  const progress = calculateProgress();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -116,28 +138,44 @@ const CreateJob = () => {
               <div className="text-right">
                 <h2 className="text-xl font-semibold">Preview Job Post</h2>
                 <p className="text-sm text-muted-foreground">Preview your post before you publish.</p>
-                <Button className="mt-2 bg-gray-600 hover:bg-gray-700">PREVIEW</Button>
+                <Button 
+                  className="mt-2 bg-gray-600 hover:bg-gray-700"
+                  onClick={() => setShowPreview(true)}
+                  disabled={progress < 100}
+                >
+                  <Eye className="h-4 w-4 mr-2" />
+                  PREVIEW
+                </Button>
               </div>
             </div>
 
-            {/* Step indicators */}
-            <div className="flex items-center justify-center mb-8">
-              <div className="flex items-center space-x-4">
-                {[1, 2, 3].map((n) => (
-                  <>
-                    <div
-                      key={n}
-                      className={`flex items-center justify-center w-8 h-8 rounded-full ${
-                        step >= n ? 'bg-blue-600 text-white' : 'bg-gray-200'
-                      }`}
-                    >
-                      {n}
+            {/* Progress Indicator */}
+            <Card className="mb-6 bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200">
+              <CardContent className="p-6">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className={`h-5 w-5 ${progress === 100 ? 'text-green-600' : 'text-gray-400'}`} />
+                      <span className="font-semibold text-gray-700">Form Completion</span>
                     </div>
-                    {n < 3 && <div className="w-12 h-px bg-gray-300"></div>}
-                  </>
-                ))}
-              </div>
-            </div>
+                    <span className="text-2xl font-bold text-blue-600">{progress}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-3">
+                    <div 
+                      className={`h-3 rounded-full transition-all duration-300 ${
+                        progress === 100 ? 'bg-green-600' : 'bg-blue-600'
+                      }`}
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    {progress === 100 
+                      ? '✅ All required fields completed! You can now preview and post your job.' 
+                      : `${8 - Math.round((progress / 100) * 8)} required fields remaining`}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
 
             <form onSubmit={handleSubmit} className="space-y-6">
               <Card>
@@ -332,7 +370,7 @@ const CreateJob = () => {
                 <Button variant="outline" onClick={() => navigate('/jobs/posted')}>
                   Cancel
                 </Button>
-                <Button type="submit" disabled={loading}>
+                <Button type="submit" disabled={loading || progress < 100}>
                   {loading ? 'Posting...' : 'Post Job'}
                 </Button>
               </div>
@@ -340,6 +378,110 @@ const CreateJob = () => {
           </div>
         </main>
       </div>
+
+      {/* Preview Modal */}
+      <Dialog open={showPreview} onOpenChange={setShowPreview}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Job Post Preview</DialogTitle>
+            <DialogDescription>
+              This is how your job posting will appear to candidates
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6">
+            {/* Job Header */}
+            <div className="border-b pb-4">
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                {formData.title || 'Job Title'}
+              </h1>
+              <p className="text-xl text-gray-600">
+                {formData.company_name || 'Company Name'}
+              </p>
+            </div>
+
+            {/* Job Meta Info */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="flex items-center gap-2 text-gray-600">
+                <MapPin className="h-5 w-5" />
+                <span>{formData.location || 'Location'}</span>
+              </div>
+              <div className="flex items-center gap-2 text-gray-600">
+                <Briefcase className="h-5 w-5" />
+                <span className="capitalize">{formData.job_type?.replace('-', ' ') || 'Job Type'}</span>
+              </div>
+              {formData.salary_range && (
+                <div className="flex items-center gap-2 text-gray-600">
+                  <DollarSign className="h-5 w-5" />
+                  <span>{formData.salary_range}</span>
+                </div>
+              )}
+              {formData.application_deadline && (
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Clock className="h-5 w-5" />
+                  <span>Apply by {new Date(formData.application_deadline).toLocaleDateString()}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Requirements */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <h3 className="font-semibold mb-2">Qualification</h3>
+                <p className="text-gray-600 capitalize">{formData.qualification || 'Not specified'}</p>
+              </div>
+              <div>
+                <h3 className="font-semibold mb-2">Experience Level</h3>
+                <p className="text-gray-600 capitalize">{formData.experience_level || 'Not specified'}</p>
+              </div>
+              {formData.notice_period && (
+                <div>
+                  <h3 className="font-semibold mb-2">Notice Period</h3>
+                  <p className="text-gray-600">{formData.notice_period}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Skills */}
+            {skills.length > 0 && (
+              <div>
+                <h3 className="font-semibold mb-2">Required Skills</h3>
+                <div className="flex flex-wrap gap-2">
+                  {skills.map((skill, i) => (
+                    <Badge key={i} variant="secondary">{skill}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Description */}
+            <div>
+              <h3 className="font-semibold mb-2">Job Description</h3>
+              <p className="text-gray-600 whitespace-pre-wrap">
+                {formData.job_description || 'No description provided'}
+              </p>
+            </div>
+
+            {/* Contact */}
+            <div className="border-t pt-4">
+              <h3 className="font-semibold mb-2">Contact</h3>
+              <p className="text-gray-600">{formData.contact_email}</p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPreview(false)}>
+              Close Preview
+            </Button>
+            <Button onClick={() => {
+              setShowPreview(false);
+              // You can trigger form submission here if needed
+            }}>
+              Looks Good, Post Job
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

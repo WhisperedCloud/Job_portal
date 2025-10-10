@@ -1,10 +1,11 @@
-
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import CandidateApplications from '../components/Applications/CandidateApplications';
 import RecruiterApplications from '../components/Applications/RecruiterApplications';
+import AdminApplications from '../pages/AllApplications';
 import Navbar from '../components/Layout/Navbar';
 import Sidebar from '../components/Layout/Sidebar';
+import AllApplications from '../pages/AllApplications';
 
 const Applications = () => {
   const { user } = useAuth();
@@ -15,6 +16,8 @@ const Applications = () => {
         return <CandidateApplications />;
       case 'recruiter':
         return <RecruiterApplications />;
+      case 'admin':
+        return <AllApplications />;
       default:
         return <div>Applications not available for this user role</div>;
     }
