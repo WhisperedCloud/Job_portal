@@ -12,7 +12,7 @@ import {
   User, FileText, Calendar, Mail, Phone, MapPin, Download, 
   Eye, Loader2, TrendingUp, CheckCircle, XCircle, Sparkles, 
   Calendar as CalendarIcon, Briefcase, GraduationCap, Award,
-  Video, Clock, RotateCcw, MapPinIcon
+  Video, Clock, RotateCcw, MapPinIcon, AlertCircle
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -156,6 +156,35 @@ const RecruiterApplications = () => {
       toast.error('Failed to load applications');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const formatTime = (timeString: string) => {
+    if (!timeString) return 'Not set';
+    
+    try {
+      if (timeString.match(/^\d{2}:\d{2}(:\d{2})?$/)) {
+        const [hours, minutes] = timeString.split(':');
+        const hour = parseInt(hours, 10);
+        const minute = minutes;
+        const ampm = hour >= 12 ? 'PM' : 'AM';
+        const displayHour = hour % 12 || 12;
+        return `${displayHour}:${minute} ${ampm}`;
+      }
+      
+      const date = new Date(timeString);
+      if (!isNaN(date.getTime())) {
+        return date.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        });
+      }
+      
+      return timeString;
+    } catch (error) {
+      console.error('Error formatting time:', error);
+      return timeString;
     }
   };
 
@@ -357,7 +386,6 @@ const RecruiterApplications = () => {
         }
       } catch (notifError) {
         console.error('Notification error:', notifError);
-        // Don't fail the whole operation if notification fails
       }
 
       toast.success(isReschedule ? 'Interview rescheduled successfully!' : 'Interview scheduled successfully!');
@@ -431,6 +459,8 @@ const RecruiterApplications = () => {
         return 'bg-yellow-100 text-yellow-800';
       case 'interview_scheduled':
         return 'bg-purple-100 text-purple-800';
+      case 'missed_interview':
+        return 'bg-orange-100 text-orange-800';
       case 'rejected':
         return 'bg-red-100 text-red-800';
       case 'hired':
@@ -581,343 +611,378 @@ const RecruiterApplications = () => {
             </CardContent>
           </Card>
         ) : (
-          filteredApplications.map((application, index) => (
-            <Card key={application.id} className="hover:shadow-md transition-shadow">
-              <CardContent className="p-6">
-                <div className="space-y-4">
-                  {/* Header */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      {sortByScore && application.analysis && (
-                        <div className="flex items-center justify-center w-10 h-10 rounded-full bg-gradient-to-br from-purple-100 to-blue-100 text-purple-700 font-bold text-lg">
-                          #{index + 1}
-                        </div>
-                      )}
-                      <div>
-                        <h3 className="text-xl font-semibold">{application.candidate?.name}</h3>
-                        <p className="text-sm text-muted-foreground">
-                          Applied for: {application.job?.title}
-                        </p>
-                      </div>
-                      <Badge className={getStatusColor(application.status)}>
-                        {application.status.replace('_', ' ').toUpperCase()}
-                      </Badge>
-                    </div>
-                    <div className="flex gap-2">
-                      {application.status === 'applied' && (
-                        <>
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => updateApplicationStatus(application.id, 'under_review')}
-                          >
-                            Under Review
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            variant="default"
-                            onClick={() => openScheduleDialog(application, false)}
-                          >
-                            <CalendarIcon className="h-4 w-4 mr-2" />
-                            Schedule Interview
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            variant="destructive"
-                            onClick={() => updateApplicationStatus(application.id, 'rejected')}
-                          >
-                            Reject
-                          </Button>
-                        </>
-                      )}
-                      {application.status === 'under_review' && (
-                        <>
-                          <Button 
-                            size="sm" 
-                            variant="default"
-                            onClick={() => openScheduleDialog(application, false)}
-                          >
-                            <CalendarIcon className="h-4 w-4 mr-2" />
-                            Schedule Interview
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            variant="destructive"
-                            onClick={() => updateApplicationStatus(application.id, 'rejected')}
-                          >
-                            Reject
-                          </Button>
-                          <Button 
-                            size="sm"
-                            onClick={() => updateApplicationStatus(application.id, 'hired')}
-                          >
-                            Hire
-                          </Button>
-                        </>
-                      )}
-                      {application.status === 'interview_scheduled' && (
-                        <>
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => openScheduleDialog(application, true)}
-                          >
-                            <RotateCcw className="h-4 w-4 mr-2" />
-                            Reschedule
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => updateApplicationStatus(application.id, 'hired')}
-                          >
-                            Hire
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            variant="destructive"
-                            onClick={() => updateApplicationStatus(application.id, 'rejected')}
-                          >
-                            Reject
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Interview Details */}
-                  {application.status === 'interview_scheduled' && application.interview_date && (
-                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <CalendarIcon className="h-5 w-5 text-purple-600" />
-                        <span className="font-semibold text-purple-900">Interview Scheduled</span>
-                        {application.interview_rescheduled_count && application.interview_rescheduled_count > 0 && (
-                          <Badge variant="secondary" className="text-xs">
-                            Rescheduled {application.interview_rescheduled_count}x
-                          </Badge>
+          filteredApplications.map((application, index) => {
+            const isMissed = application.status === 'missed_interview';
+            
+            return (
+              <Card key={application.id} className={`hover:shadow-md transition-shadow ${isMissed ? 'border-2 border-orange-300' : ''}`}>
+                <CardContent className="p-6">
+                  <div className="space-y-4">
+                    {/* Header */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        {sortByScore && application.analysis && (
+                          <div className="flex items-center justify-center w-10 h-10 rounded-full bg-gradient-to-br from-purple-100 to-blue-100 text-purple-700 font-bold text-lg">
+                            #{index + 1}
+                          </div>
                         )}
-                      </div>
-                      <div className="grid grid-cols-2 gap-3 text-sm">
                         <div>
-                          <p className="text-muted-foreground flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            Date
-                          </p>
-                          <p className="font-medium">
-                            {new Date(application.interview_date).toLocaleDateString('en-US', { 
-                              weekday: 'long', 
-                              year: 'numeric', 
-                              month: 'long', 
-                              day: 'numeric' 
-                            })}
+                          <h3 className="text-xl font-semibold">{application.candidate?.name}</h3>
+                          <p className="text-sm text-muted-foreground">
+                            Applied for: {application.job?.title}
                           </p>
                         </div>
-                        <div>
-                          <p className="text-muted-foreground flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            Time
-                          </p>
-                          <p className="font-medium">{application.interview_time}</p>
-                        </div>
-                        {application.interview_mode === 'in-person' && application.interview_venue && (
-                          <div className="col-span-2">
-                            <p className="text-muted-foreground flex items-center gap-1">
-                              <MapPinIcon className="h-3 w-3" />
-                              Venue
-                            </p>
-                            <p className="font-medium">{application.interview_venue}</p>
-                          </div>
-                        )}
-                        {application.interview_mode === 'video' && application.interview_link && (
-                          <div className="col-span-2">
-                            <p className="text-muted-foreground flex items-center gap-1">
-                              <Video className="h-3 w-3" />
-                              Video Call
-                            </p>
-                            <a 
-                              href={application.interview_link} 
-                              target="_blank" 
-                              rel="noopener noreferrer" 
-                              className="font-medium text-blue-600 underline"
-                            >
-                              Join Meeting
-                            </a>
-                          </div>
-                        )}
-                        {application.interview_mode === 'phone' && (
-                          <div className="col-span-2">
-                            <p className="text-muted-foreground flex items-center gap-1">
-                              <Phone className="h-3 w-3" />
-                              Mode
-                            </p>
-                            <p className="font-medium">Phone Interview</p>
-                          </div>
-                        )}
-                        {application.interview_notes && (
-                          <div className="col-span-2">
-                            <p className="text-muted-foreground">Notes</p>
-                            <p className="font-medium text-sm">{application.interview_notes}</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* AI Analysis Score */}
-                  {application.analysis ? (
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <TrendingUp className="h-5 w-5 text-blue-600" />
-                          <span className="font-semibold text-blue-900">AI Match Score</span>
-                        </div>
-                        <Badge className={getScoreBadge(application.analysis.overall_match_score)}>
-                          {application.analysis.overall_match_score}% Match
+                        <Badge className={getStatusColor(application.status)}>
+                          {application.status.replace('_', ' ').toUpperCase()}
                         </Badge>
                       </div>
-                      
-                      <Progress 
-                        value={application.analysis.overall_match_score} 
-                        className="h-2 mb-3"
-                      />
+                      <div className="flex gap-2">
+                        {application.status === 'applied' && (
+                          <>
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => updateApplicationStatus(application.id, 'under_review')}
+                            >
+                              Under Review
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="default"
+                              onClick={() => openScheduleDialog(application, false)}
+                            >
+                              <CalendarIcon className="h-4 w-4 mr-2" />
+                              Schedule Interview
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="destructive"
+                              onClick={() => updateApplicationStatus(application.id, 'rejected')}
+                            >
+                              Reject
+                            </Button>
+                          </>
+                        )}
+                        {application.status === 'under_review' && (
+                          <>
+                            <Button 
+                              size="sm" 
+                              variant="default"
+                              onClick={() => openScheduleDialog(application, false)}
+                            >
+                              <CalendarIcon className="h-4 w-4 mr-2" />
+                              Schedule Interview
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="destructive"
+                              onClick={() => updateApplicationStatus(application.id, 'rejected')}
+                            >
+                              Reject
+                            </Button>
+                            <Button 
+                              size="sm"
+                              onClick={() => updateApplicationStatus(application.id, 'hired')}
+                            >
+                              Hire
+                            </Button>
+                          </>
+                        )}
+                        {(application.status === 'interview_scheduled' || isMissed) && (
+                          <>
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => openScheduleDialog(application, true)}
+                            >
+                              <RotateCcw className="h-4 w-4 mr-2" />
+                              Reschedule
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => updateApplicationStatus(application.id, 'hired')}
+                            >
+                              Hire
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="destructive"
+                              onClick={() => updateApplicationStatus(application.id, 'rejected')}
+                            >
+                              Reject
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
 
-                      <p className="text-sm text-gray-700 mb-3">
-                        {application.analysis.summary}
-                      </p>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <div className="flex items-center gap-2 mb-2">
-                            <CheckCircle className="h-4 w-4 text-green-600" />
-                            <span className="text-sm font-medium">Matched Skills</span>
-                          </div>
-                          <div className="flex flex-wrap gap-1">
-                            {application.analysis.key_skills_matched.map((skill, idx) => (
-                              <Badge key={idx} variant="secondary" className="text-xs">
-                                {skill}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2 mb-2">
-                            <XCircle className="h-4 w-4 text-red-600" />
-                            <span className="text-sm font-medium">Missing Skills</span>
-                          </div>
-                          <div className="flex flex-wrap gap-1">
-                            {application.analysis.missing_skills.map((skill, idx) => (
-                              <Badge key={idx} variant="outline" className="text-xs">
-                                {skill}
-                              </Badge>
-                            ))}
+                    {/* Missed Interview Warning */}
+                    {isMissed && application.interview_date && (
+                      <div className="bg-orange-50 border-2 border-orange-300 rounded-lg p-4">
+                        <div className="flex items-start gap-3">
+                          <AlertCircle className="h-6 w-6 text-orange-600 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <h4 className="font-bold text-orange-900 mb-2">Candidate Missed Interview</h4>
+                            <p className="text-sm text-orange-800 mb-2">
+                              Interview was scheduled for:
+                            </p>
+                            <div className="space-y-1 text-sm">
+                              <p className="font-semibold">
+                                📅 {new Date(application.interview_date).toLocaleDateString('en-US', { 
+                                  weekday: 'long', 
+                                  year: 'numeric', 
+                                  month: 'long', 
+                                  day: 'numeric' 
+                                })}
+                              </p>
+                              <p className="font-semibold">
+                                🕒 {formatTime(application.interview_time!)}
+                              </p>
+                            </div>
+                            <p className="text-sm text-orange-800 mt-3">
+                              💡 Consider rescheduling or following up with the candidate.
+                            </p>
                           </div>
                         </div>
                       </div>
+                    )}
+
+                    {/* Interview Details */}
+                    {application.status === 'interview_scheduled' && application.interview_date && (
+                      <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <CalendarIcon className="h-5 w-5 text-purple-600" />
+                          <span className="font-semibold text-purple-900">Interview Scheduled</span>
+                          {application.interview_rescheduled_count && application.interview_rescheduled_count > 0 && (
+                            <Badge variant="secondary" className="text-xs">
+                              Rescheduled {application.interview_rescheduled_count}x
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                          <div>
+                            <p className="text-muted-foreground flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              Date
+                            </p>
+                            <p className="font-medium">
+                              {new Date(application.interview_date).toLocaleDateString('en-US', { 
+                                weekday: 'long', 
+                                year: 'numeric', 
+                                month: 'long', 
+                                day: 'numeric' 
+                              })}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              Time
+                            </p>
+                            <p className="font-medium">{formatTime(application.interview_time!)}</p>
+                          </div>
+                          {application.interview_mode === 'in-person' && application.interview_venue && (
+                            <div className="col-span-2">
+                              <p className="text-muted-foreground flex items-center gap-1">
+                                <MapPinIcon className="h-3 w-3" />
+                                Venue
+                              </p>
+                              <p className="font-medium">{application.interview_venue}</p>
+                            </div>
+                          )}
+                          {application.interview_mode === 'video' && application.interview_link && (
+                            <div className="col-span-2">
+                              <p className="text-muted-foreground flex items-center gap-1">
+                                <Video className="h-3 w-3" />
+                                Video Call
+                              </p>
+                              <a 
+                                href={application.interview_link} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="font-medium text-blue-600 underline"
+                              >
+                                Join Meeting
+                              </a>
+                            </div>
+                          )}
+                          {application.interview_mode === 'phone' && (
+                            <div className="col-span-2">
+                              <p className="text-muted-foreground flex items-center gap-1">
+                                <Phone className="h-3 w-3" />
+                                Mode
+                              </p>
+                              <p className="font-medium">Phone Interview</p>
+                            </div>
+                          )}
+                          {application.interview_notes && (
+                            <div className="col-span-2">
+                              <p className="text-muted-foreground">Notes</p>
+                              <p className="font-medium text-sm">{application.interview_notes}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* AI Analysis Score */}
+                    {application.analysis ? (
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <TrendingUp className="h-5 w-5 text-blue-600" />
+                            <span className="font-semibold text-blue-900">AI Match Score</span>
+                          </div>
+                          <Badge className={getScoreBadge(application.analysis.overall_match_score)}>
+                            {application.analysis.overall_match_score}% Match
+                          </Badge>
+                        </div>
+                        
+                        <Progress 
+                          value={application.analysis.overall_match_score} 
+                          className="h-2 mb-3"
+                        />
+
+                        <p className="text-sm text-gray-700 mb-3">
+                          {application.analysis.summary}
+                        </p>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <CheckCircle className="h-4 w-4 text-green-600" />
+                              <span className="text-sm font-medium">Matched Skills</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {application.analysis.key_skills_matched.map((skill, idx) => (
+                                <Badge key={idx} variant="secondary" className="text-xs">
+                                  {skill}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <XCircle className="h-4 w-4 text-red-600" />
+                              <span className="text-sm font-medium">Missing Skills</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {application.analysis.missing_skills.map((skill, idx) => (
+                                <Badge key={idx} variant="outline" className="text-xs">
+                                  {skill}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => analyzeResume(application)}
+                        disabled={analyzing === application.id || analyzingAll}
+                      >
+                        {analyzing === application.id ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Analyzing...
+                          </>
+                        ) : (
+                          <>
+                            <TrendingUp className="h-4 w-4 mr-2" />
+                            Analyze Resume with AI
+                          </>
+                        )}
+                      </Button>
+                    )}
+
+                    {/* Candidate Details */}
+                    <div className="grid grid-cols-2 gap-4 border-t pt-4">
+                      <div>
+                        <h4 className="font-semibold mb-2">Contact Information</h4>
+                        <div className="space-y-2 text-sm">
+                          {application.candidate?.phone && (
+                            <div className="flex items-center gap-2">
+                              <Phone className="h-4 w-4 text-muted-foreground" />
+                              <span>{application.candidate.phone}</span>
+                            </div>
+                          )}
+                          {application.candidate?.location && (
+                            <div className="flex items-center gap-2">
+                              <MapPin className="h-4 w-4 text-muted-foreground" />
+                              <span>{application.candidate.location}</span>
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <Calendar className="h-4 w-4 text-muted-foreground" />
+                            <span>Applied {new Date(application.applied_at).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h4 className="font-semibold mb-2">Skills</h4>
+                        <div className="flex flex-wrap gap-1">
+                          {application.candidate?.skills.map((skill, idx) => (
+                            <Badge key={idx} variant="secondary" className="text-xs">
+                              {skill}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
                     </div>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => analyzeResume(application)}
-                      disabled={analyzing === application.id || analyzingAll}
-                    >
-                      {analyzing === application.id ? (
+
+                    {/* Cover Letter */}
+                    {application.cover_letter && (
+                      <div className="border-t pt-4">
+                        <h4 className="font-semibold mb-2">Cover Letter</h4>
+                        <p className="text-sm text-muted-foreground">
+                          {application.cover_letter}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    <div className="border-t pt-4 flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => viewCandidateProfile(application.candidate, application.candidate_id)}
+                      >
+                        <User className="h-4 w-4 mr-2" />
+                        View Full Profile
+                      </Button>
+                      {application.candidate?.resume_url && (
                         <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Analyzing...
-                        </>
-                      ) : (
-                        <>
-                          <TrendingUp className="h-4 w-4 mr-2" />
-                          Analyze Resume with AI
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedResume(application.candidate.resume_url!);
+                              setIsResumeModalOpen(true);
+                            }}
+                          >
+                            <Eye className="h-4 w-4 mr-2" />
+                            View Resume
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => window.open(application.candidate?.resume_url, '_blank')}
+                          >
+                            <Download className="h-4 w-4 mr-2" />
+                            Download Resume
+                          </Button>
                         </>
                       )}
-                    </Button>
-                  )}
-
-                  {/* Candidate Details */}
-                  <div className="grid grid-cols-2 gap-4 border-t pt-4">
-                    <div>
-                      <h4 className="font-semibold mb-2">Contact Information</h4>
-                      <div className="space-y-2 text-sm">
-                        {application.candidate?.phone && (
-                          <div className="flex items-center gap-2">
-                            <Phone className="h-4 w-4 text-muted-foreground" />
-                            <span>{application.candidate.phone}</span>
-                          </div>
-                        )}
-                        {application.candidate?.location && (
-                          <div className="flex items-center gap-2">
-                            <MapPin className="h-4 w-4 text-muted-foreground" />
-                            <span>{application.candidate.location}</span>
-                          </div>
-                        )}
-                        <div className="flex items-center gap-2">
-                          <Calendar className="h-4 w-4 text-muted-foreground" />
-                          <span>Applied {new Date(application.applied_at).toLocaleDateString()}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <h4 className="font-semibold mb-2">Skills</h4>
-                      <div className="flex flex-wrap gap-1">
-                        {application.candidate?.skills.map((skill, idx) => (
-                          <Badge key={idx} variant="secondary" className="text-xs">
-                            {skill}
-                          </Badge>
-                        ))}
-                      </div>
                     </div>
                   </div>
-
-                  {/* Cover Letter */}
-                  {application.cover_letter && (
-                    <div className="border-t pt-4">
-                      <h4 className="font-semibold mb-2">Cover Letter</h4>
-                      <p className="text-sm text-muted-foreground">
-                        {application.cover_letter}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Actions */}
-                  <div className="border-t pt-4 flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => viewCandidateProfile(application.candidate, application.candidate_id)}
-                    >
-                      <User className="h-4 w-4 mr-2" />
-                      View Full Profile
-                    </Button>
-                    {application.candidate?.resume_url && (
-                      <>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setSelectedResume(application.candidate.resume_url!);
-                            setIsResumeModalOpen(true);
-                          }}
-                        >
-                          <Eye className="h-4 w-4 mr-2" />
-                          View Resume
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => window.open(application.candidate?.resume_url, '_blank')}
-                        >
-                          <Download className="h-4 w-4 mr-2" />
-                          Download Resume
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))
+                </CardContent>
+              </Card>
+            );
+          })
         )}
       </div>
 
@@ -1079,7 +1144,7 @@ const RecruiterApplications = () => {
               <h4 className="font-semibold text-blue-900 mb-2">📋 Interview Summary</h4>
               <div className="space-y-1 text-sm text-blue-800">
                 <p>📅 Date: {interviewData.interview_date ? new Date(interviewData.interview_date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'Not set'}</p>
-                <p>🕒 Time: {interviewData.interview_time || 'Not set'}</p>
+                <p>🕒 Time: {interviewData.interview_time ? formatTime(interviewData.interview_time) : 'Not set'}</p>
                 <p>💼 Mode: {interviewData.interview_mode === 'video' ? '💻 Video Call' : interviewData.interview_mode === 'in-person' ? '📍 In-Person' : '📞 Phone'}</p>
                 {interviewData.interview_mode === 'in-person' && interviewData.interview_venue && (
                   <p>📍 Venue: {interviewData.interview_venue}</p>
@@ -1109,7 +1174,7 @@ const RecruiterApplications = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Candidate Profile Modal */}
+      {/* Candidate Profile Modal - keeping the same as before */}
       <Dialog open={isProfileModalOpen} onOpenChange={setIsProfileModalOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
