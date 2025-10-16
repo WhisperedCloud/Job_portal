@@ -50,7 +50,7 @@ export const UpcomingInterviews = () => {
         .select(`
           id,
           interview_date,
-          interview_time,
+          -- interview_time,
           interview_venue,
           interview_mode,
           interview_link,
