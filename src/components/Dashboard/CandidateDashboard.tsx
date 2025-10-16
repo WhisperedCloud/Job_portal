@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { useNavigate } from 'react-router-dom';
@@ -21,9 +21,28 @@ const CandidateDashboard = () => {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Notification popover state
+  const [notifOpen, setNotifOpen] = useState(false);
+  const notifRef = useRef(null);
+
   useEffect(() => {
     if (user) fetchDashboardData();
   }, [user]);
+
+  // Close popover when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (notifRef.current && !notifRef.current.contains(event.target)) {
+        setNotifOpen(false);
+      }
+    };
+    if (notifOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [notifOpen]);
 
   const fetchUserRoleId = async (email) => {
     const { data, error } = await supabase
@@ -114,7 +133,7 @@ const CandidateDashboard = () => {
           .select('id, type, data, is_read, created_at')
           .eq('user_id', userRoleId)
           .order('created_at', { ascending: false })
-          .limit(5);
+          .limit(10);
         notifList = data || [];
       }
 
@@ -154,6 +173,7 @@ const CandidateDashboard = () => {
     }
   };
 
+  // Only update local notification state and stats, no dashboard refresh!
   const markNotificationAsRead = async (id) => {
     const userRoleId = await fetchUserRoleId(user.email);
     await supabase
@@ -161,8 +181,15 @@ const CandidateDashboard = () => {
       .update({ is_read: true })
       .eq('id', id)
       .eq('user_id', userRoleId);
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
-    fetchDashboardData();
+
+    // Optimistically update local state
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
+    );
+    setStats((prev) => ({
+      ...prev,
+      notifications: Math.max(0, prev.notifications - 1),
+    }));
   };
 
   // Subscribe to notifications for real-time updates
@@ -204,8 +231,79 @@ const CandidateDashboard = () => {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
+    <div className="space-y-6 relative">
+      {/* Notification Bell Icon - absolutely positioned top-right, just below navbar, slightly higher */}
+      <div className="absolute top-2 right-10 z-50" ref={notifRef}>
+        <button
+          type="button"
+          className="relative bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 shadow-lg rounded-full p-3 hover:scale-110 transition"
+          onClick={() => setNotifOpen((open) => !open)}
+          aria-label="Show Notifications"
+        >
+          <Bell className="h-7 w-7 text-white" />
+          {stats.notifications > 0 && (
+            <span className="absolute -top-2 -right-2 bg-pink-600 text-white rounded-full text-xs px-2 py-0.5 font-bold shadow">
+              {stats.notifications}
+            </span>
+          )}
+        </button>
+        {notifOpen && (
+          <div
+            className="absolute right-0 mt-2 w-[420px] bg-white bg-opacity-95 border border-purple-300 rounded-xl shadow-2xl overflow-y-auto ring-2 ring-pink-200 z-50"
+            style={{ maxHeight: '60vh', boxShadow: '0 8px 32px 0 rgba(31,38,135,0.37)' }}
+          >
+            <div className="px-6 py-4 bg-gradient-to-r from-purple-500/30 to-pink-500/20 border-b border-purple-200">
+              <span className="font-bold text-lg text-purple-700">Notifications</span>
+            </div>
+            <div className="divide-y divide-purple-100">
+              {notifications.length > 0 ? (
+                notifications.map((notification) => (
+                  <div
+                    key={notification.id}
+                    className={`flex items-center justify-between gap-3 px-5 py-4 bg-white/60 border-none
+                      ${!notification.is_read ? "ring-2 ring-pink-200" : ""}`}
+                  >
+                    <div className="pr-2 flex-1">
+                      <h3 className={`font-semibold text-base mb-1 ${!notification.is_read ? "text-pink-700" : "text-purple-500"}`}>
+                        {notification.type === 'job_alert' ? '✨ New Job Alert' : notification.type}
+                      </h3>
+                      {notification.data?.job_title && (
+                        <p className="text-[1rem] leading-snug text-purple-700 font-medium mb-1">
+                          {notification.data.job_title} at {notification.data.company} ({notification.data.location})
+                        </p>
+                      )}
+                      <p className="text-xs text-purple-400">
+                        {new Date(notification.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant={notification.is_read ? 'outline' : 'default'}
+                      disabled={notification.is_read}
+                      onClick={() => markNotificationAsRead(notification.id)}
+                      className={`transition ml-2 ${
+                        notification.is_read
+                          ? "border-purple-300 text-purple-300"
+                          : "bg-pink-500 text-white hover:bg-pink-600"
+                      }`}
+                    >
+                      {notification.is_read ? 'Read' : 'Mark as read'}
+                    </Button>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center text-purple-400 py-8">
+                  <Bell className="mx-auto mb-2 h-8 w-8 text-purple-400 opacity-60" />
+                  <p>No notifications yet!</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Candidate Dashboard Content - minimal gap above */}
+      <div className="pt-4">
         <h1 className="text-3xl font-bold text-foreground">Candidate Dashboard</h1>
         <p className="text-muted-foreground mt-2">
           Track your job applications and discover new opportunities
@@ -254,52 +352,6 @@ const CandidateDashboard = () => {
               <FileText className="h-4 w-4 mr-2" />
               My Applications
             </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Notifications */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Notifications</CardTitle>
-          <CardDescription>
-            Your latest alerts and updates
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {notifications.length > 0 ? (
-              notifications.map((notification) => (
-                <div
-                  key={notification.id}
-                  className={`flex items-center justify-between p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors cursor-pointer`}
-                >
-                  <div>
-                    <h3 className="font-medium">
-                      {notification.type === 'job_alert' ? 'New Job Alert' : notification.type}
-                    </h3>
-                    {notification.data?.job_title && (
-                      <p className="text-sm text-muted-foreground">
-                        {notification.data.job_title} at {notification.data.company} ({notification.data.location})
-                      </p>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(notification.created_at).toLocaleString()}
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant={notification.is_read ? 'outline' : 'default'}
-                    disabled={notification.is_read}
-                    onClick={() => markNotificationAsRead(notification.id)}
-                  >
-                    {notification.is_read ? 'Read' : 'Mark as read'}
-                  </Button>
-                </div>
-              ))
-            ) : (
-              <p className="text-muted-foreground text-center py-4">No notifications yet!</p>
-            )}
           </div>
         </CardContent>
       </Card>
