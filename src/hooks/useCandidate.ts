@@ -10,33 +10,13 @@ export interface CandidateProfile {
   phone?: string;
   location?: string;
   education?: string;
+  email: string;
   experience?: string;
   skills: string[];
   resume_url?: string;
   license_type?: string;
   license_number?: string;
 }
-
-// -------------------------------------------------------------------
-// 💡 SIMULATED RESUME PARSER (In a real app, this would be an API call)
-// This function simulates fetching extracted data from a resume analyzer.
-// -------------------------------------------------------------------
-const simulateResumeAnalysis = (file: File) => {
-  // In a real application, you would use fetch() here to call your API/Edge Function.
-  // The API would read the file's content from the bucket URL and return structured data.
-  
-  const extractedName = file.name.replace(/[^a-zA-Z]/g, ' ').split(' ').filter(Boolean).slice(0, 2).join(' ');
-  const randomPhone = `+1-555-${Math.floor(1000 + Math.random() * 9000)}`;
-
-  return {
-    name: extractedName || 'Candidate Name',
-    phone: randomPhone,
-    skills: ['React', 'TypeScript', 'Tailwind CSS', 'SQL', 'Project Management'],
-    experience: "1. Senior Developer at Acme Corp (2020-Present)\n2. Junior Dev at Startup XYZ (2018-2020)",
-  };
-};
-// -------------------------------------------------------------------
-
 
 export const useCandidate = () => {
   const { user } = useAuth();
@@ -47,6 +27,7 @@ export const useCandidate = () => {
     if (user) {
       fetchProfile();
     }
+    // eslint-disable-next-line
   }, [user]);
 
   const fetchProfile = async () => {
@@ -64,8 +45,28 @@ export const useCandidate = () => {
         } else {
           throw error;
         }
+      } else if (data && typeof data === "object") {
+        // Option 2: If email is missing, update it in Supabase
+        if (!data.email || data.email === '') {
+          // Update candidate with email from auth
+          const updateEmail = user?.email || '';
+          const { error: updateError } = await supabase
+            .from('candidates')
+            .update({ email: updateEmail })
+            .eq('id', data.id);
+
+          if (updateError) {
+            console.error('Error updating candidate email:', updateError);
+          }
+          // Set email in local object too
+          data.email = updateEmail;
+        }
+        setProfile({
+          ...data,
+          email: data.email ?? (user?.email || 'No Email Provided'),
+        });
       } else {
-        setProfile(data);
+        setProfile(null);
       }
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -82,13 +83,31 @@ export const useCandidate = () => {
         .insert({
           user_id: user?.id,
           name: user?.email || 'New User',
+          email: user?.email || 'No Email Provided',
           skills: []
         })
         .select()
         .single();
 
       if (error) throw error;
-      setProfile(data);
+      if (data && typeof data === "object") {
+        setProfile({
+          id: data.id,
+          user_id: data.user_id,
+          name: data.name,
+          phone: data.phone,
+          location: data.location,
+          education: data.education,
+          email: data.email ?? (user?.email || 'No Email Provided'),
+          experience: data.experience,
+          skills: data.skills,
+          resume_url: data.resume_url,
+          license_type: data.license_type,
+          license_number: data.license_number,
+        });
+      } else {
+        setProfile(null);
+      }
       toast.success('Profile created successfully');
     } catch (error) {
       console.error('Error creating profile:', error);
@@ -98,8 +117,6 @@ export const useCandidate = () => {
 
   const updateProfile = async (updates: Partial<CandidateProfile>) => {
     try {
-      console.log('Updating profile with:', updates);
-      
       const { data, error } = await supabase
         .from('candidates')
         .update(updates)
@@ -111,27 +128,31 @@ export const useCandidate = () => {
         console.error('Supabase update error:', error);
         throw error;
       }
-      
-      console.log('Profile updated successfully:', data);
-      setProfile(data);
+
+      if (data && typeof data === "object") {
+        setProfile({
+          ...data,
+          email: data.email ?? (user?.email || 'No Email Provided'),
+        });
+      } else {
+        setProfile(null);
+      }
       toast.success('Profile updated successfully');
-    } catch (error) {
+      return data;
+    } catch (error: any) {
       console.error('Error updating profile:', error);
       toast.error(`Failed to update profile: ${error.message}`);
+      throw error;
     }
   };
 
   const uploadFile = async (file: File, bucket: string, folder: string = '') => {
     try {
       if (!user) throw new Error('User not authenticated');
-      
-      // We will now handle resume parsing logic inside the upload process
-      
+
       const fileExt = file.name.split('.').pop();
       const fileName = `${user.id}/${folder}${Date.now()}.${fileExt}`;
-      
-      console.log('Uploading file:', fileName, 'to bucket:', bucket);
-      
+
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from(bucket)
         .upload(fileName, file, {
@@ -144,60 +165,81 @@ export const useCandidate = () => {
         throw uploadError;
       }
 
-      console.log('Upload successful:', uploadData);
-
       const { data: urlData } = supabase.storage
         .from(bucket)
         .getPublicUrl(fileName);
 
-      console.log('Public URL:', urlData.publicUrl);
       return urlData.publicUrl;
     } catch (error: any) {
-      console.error('Error uploading file:', error);
       toast.error(`Failed to upload file: ${error.message}`);
       throw error;
     }
   };
 
   /**
-   * Handles resume upload, analysis, and autofilling profile fields.
-   * This is the dedicated function called from CandidateProfile.tsx.
+   * Uploads resume, sends base64 to Edge Function, and autofills profile fields.
+   * Edge Function expects: resumeBase64, mimeType, candidateId
    */
   const uploadAndAutofillResume = async (file: File) => {
     try {
-      // 1. Upload the file (using the existing, reliable uploadFile function)
-      const resumeUrl = await uploadFile(file, 'resumes', 'profiles/');
+      // 1. Upload the file to Supabase storage
+      const resumeUrl = await uploadFile(file, 'Resumes', 'profiles/');
 
-      // 2. Simulate analysis and get extracted data
-      // NOTE: In a real app, this function would call an external API/Edge Function.
-      const extractedData = simulateResumeAnalysis(file);
+      // 2. Read the file as base64 (without the data:...prefix)
+      const base64Resume: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = (reader.result as string).split(',')[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
 
-      // 3. Update the database profile with the new URL and extracted data
-      const updates = {
+      // 3. Get candidate row id from Supabase (not user_id!)
+      const candidateId = profile?.id;
+
+      // 4. POST to Edge Function with required fields
+      const { data: parsedData, error: parseError } = await supabase.functions.invoke('parse-resume', {
+        body: {
+          resumeBase64: base64Resume,
+          mimeType: file.type,
+          candidateId,
+        }
+      });
+
+      if (parseError || !parsedData) {
+        throw parseError || new Error('Resume parsing failed');
+      }
+
+      // 5. Update profile in Supabase with parsed data
+      const updates: Partial<CandidateProfile> = {
         resume_url: resumeUrl,
-        name: extractedData.name, // Autofill name
-        phone: extractedData.phone, // Autofill phone
-        skills: [...new Set([...(profile?.skills || []), ...extractedData.skills])], // Merge skills
-        experience: extractedData.experience, // Autofill experience
+        name: parsedData.name,
+        phone: parsedData.phone,
+        location: parsedData.location,
+        skills: parsedData.skills,
+        education: parsedData.education,
+        experience: parsedData.experience,
+        license_type: parsedData.license_type,
+        license_number: parsedData.license_number,
       };
-      
+
       await updateProfile(updates);
 
       toast.success('Resume uploaded and profile auto-filled!');
-      return resumeUrl;
+      return parsedData;
     } catch (error) {
-      console.error('Autofill error:', error);
       toast.error('Failed to process resume for autofill.');
       throw error;
     }
   };
 
-  // --- NEW FUNCTION: Fetch candidate statistics ---
+  // --- Candidate statistics ---
   const fetchCandidateStats = async () => {
     if (!profile?.id) return null;
 
     try {
-      // 1. Fetch all applications for this candidate
       const { data: applicationsData, error: appsError } = await supabase
         .from('applications')
         .select(`
@@ -217,16 +259,14 @@ export const useCandidate = () => {
 
       if (appsError) throw appsError;
 
-      // 2. Count applications by status
       const totalApplications = applicationsData?.length || 0;
       const interviewsScheduled = applicationsData?.filter(
         app => app.status === 'interview_scheduled'
       ).length || 0;
 
-      // 3. Get job alerts (matching jobs based on candidate skills)
       const candidateSkills = profile.skills || [];
       let jobAlerts = 0;
-      
+
       if (candidateSkills.length > 0) {
         const { count, error: jobsError } = await supabase
           .from('jobs')
@@ -238,7 +278,6 @@ export const useCandidate = () => {
         }
       }
 
-      // 4. Format recent applications (last 5)
       const recentApplications = applicationsData?.slice(0, 5).map(app => ({
         id: app.id,
         jobTitle: app.job?.title || 'Unknown Position',
@@ -249,17 +288,15 @@ export const useCandidate = () => {
 
       return {
         totalApplications,
-        profileViews: 0, // TODO: Implement profile views tracking
+        profileViews: 0,
         interviewsScheduled,
         jobAlerts,
         recentApplications
       };
     } catch (error) {
-      console.error('Error fetching candidate stats:', error);
       return null;
     }
   };
-  // --- END NEW FUNCTION ---
 
   return {
     profile,
@@ -267,7 +304,7 @@ export const useCandidate = () => {
     updateProfile,
     uploadFile,
     uploadAndAutofillResume,
-    fetchCandidateStats, // Expose the new stats fetcher
+    fetchCandidateStats,
     refetch: fetchProfile
   };
 };

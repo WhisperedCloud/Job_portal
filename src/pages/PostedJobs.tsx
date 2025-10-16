@@ -26,21 +26,18 @@ const PostedJobs = () => {
   const [selectedJob, setSelectedJob] = useState(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
 
+  // New: State for edit modal
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editJobData, setEditJobData] = useState(null);
+  const [editLoading, setEditLoading] = useState(false);
+
   // Function to calculate job status based on application_deadline
   const determineJobStatus = (applicationDeadline: string | null) => {
-    if (!applicationDeadline) return 'active'; // No deadline means always active
-
+    if (!applicationDeadline) return 'active';
     const deadline = new Date(applicationDeadline);
     const now = new Date();
-
-    // Set time to end of day for deadline comparison
     deadline.setHours(23, 59, 59, 999);
-
-    if (now <= deadline) {
-      return 'active';
-    } else {
-      return 'closed';
-    }
+    return now <= deadline ? 'active' : 'closed';
   };
 
   useEffect(() => {
@@ -52,9 +49,7 @@ const PostedJobs = () => {
       setLoading(false);
       return;
     }
-
     try {
-      // Fetch all jobs posted by the current recruiter, along with a count of applications for each
       const { data, error } = await supabase
         .from('jobs')
         .select(`
@@ -69,10 +64,9 @@ const PostedJobs = () => {
         toast.error('Failed to load posted jobs');
         setJobs([]);
       } else {
-        // Map the data to include the number of applications and determine status
         const jobsWithMetadata = data.map(job => ({
           ...job,
-          status: determineJobStatus(job.application_deadline), // Dynamically set status based on deadline
+          status: determineJobStatus(job.application_deadline),
           applications_count: job.applications.length,
         }));
         setJobs(jobsWithMetadata || []);
@@ -90,21 +84,71 @@ const PostedJobs = () => {
     setIsViewModalOpen(true);
   };
 
-  const handleEdit = (jobId: string) => {
-    navigate(`/jobs/${jobId}/edit`);
+  // Old edit: navigates to edit page
+  // const handleEdit = (jobId: string) => {
+  //   navigate(`/jobs/${jobId}/edit`);
+  // };
+
+  // New: open edit modal with job data
+  const handleEdit = (job) => {
+    setEditJobData(job);
+    setIsEditModalOpen(true);
+  };
+
+  // Edit form handlers
+  const handleEditChange = (e) => {
+    const { name, value } = e.target;
+    setEditJobData(prev => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  const handleEditSkillsChange = (skillsString) => {
+    setEditJobData(prev => ({
+      ...prev,
+      skills_required: skillsString.split(',').map(s => s.trim()).filter(Boolean),
+    }));
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    setEditLoading(true);
+    try {
+      const { error } = await supabase
+        .from('jobs')
+        .update({
+          title: editJobData.title,
+          location: editJobData.location,
+          qualification: editJobData.qualification,
+          experience_level: editJobData.experience_level,
+          notice_period: editJobData.notice_period,
+          salary_range: editJobData.salary_range,
+          application_deadline: editJobData.application_deadline,
+          job_description: editJobData.job_description,
+          skills_required: editJobData.skills_required,
+        })
+        .eq('id', editJobData.id);
+
+      if (error) throw error;
+      toast.success("Job updated successfully!");
+      setIsEditModalOpen(false);
+      fetchPostedJobs();
+    } catch (error) {
+      toast.error("Failed to update job: " + error.message);
+    } finally {
+      setEditLoading(false);
+    }
   };
 
   const handleDelete = async (jobId: string, jobTitle: string) => {
     if (!window.confirm(`Are you sure you want to delete "${jobTitle}"? This action cannot be undone.`)) return;
-
     try {
       const { error } = await supabase
         .from('jobs')
         .delete()
         .eq('id', jobId);
-
       if (error) throw error;
-
       toast.success("Job deleted successfully!");
       fetchPostedJobs();
     } catch (error) {
@@ -126,21 +170,17 @@ const PostedJobs = () => {
 
   const getDaysUntilDeadline = (deadline: string | null) => {
     if (!deadline) return null;
-
     const deadlineDate = new Date(deadline);
     const now = new Date();
     const diffTime = deadlineDate.getTime() - now.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
     return diffDays;
   };
 
-  // Apply filter based on selected status
   const filteredJobs = jobs.filter(job =>
     statusFilter === 'all' || job.status === statusFilter
   );
 
-  // Calculate summary stats
   const totalApplications = jobs.reduce((sum, job) => sum + job.applications_count, 0);
   const activeJobs = jobs.filter(job => job.status === 'active').length;
   const closedJobs = jobs.filter(job => job.status === 'closed').length;
@@ -360,7 +400,7 @@ const PostedJobs = () => {
                             <Eye className="h-4 w-4 mr-1" />
                             View
                           </Button>
-                          <Button variant="outline" size="sm" onClick={() => handleEdit(job.id)}>
+                          <Button variant="outline" size="sm" onClick={() => handleEdit(job)}>
                             <Edit className="h-4 w-4 mr-1" />
                             Edit
                           </Button>
@@ -452,7 +492,17 @@ const PostedJobs = () => {
 
               <div>
                 <Label className="text-muted-foreground">Applications Received</Label>
-                <p className="font-medium text-2xl">{selectedJob.applications_count}</p>
+                <Button
+                  variant="secondary"
+                  className="font-medium mt-2 flex items-center gap-2"
+                  onClick={() => {
+                    setIsViewModalOpen(false);
+                    navigate(`/applications?jobId=${selectedJob.id}`);
+                  }}
+                >
+                  <Users className="h-5 w-5" />
+                  View Applications for this Job
+                </Button>
               </div>
             </div>
           )}
@@ -460,13 +510,122 @@ const PostedJobs = () => {
             <Button variant="outline" onClick={() => setIsViewModalOpen(false)}>
               Close
             </Button>
-            <Button onClick={() => {
-              setIsViewModalOpen(false);
-              navigate('/applications');
-            }}>
-              View Applications
-            </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Job Modal (Dynamic) */}
+      <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Job</DialogTitle>
+            <DialogDescription>Update the job details below.</DialogDescription>
+          </DialogHeader>
+          {editJobData && (
+            <form onSubmit={handleEditSubmit} className="space-y-4">
+              <div>
+                <Label>Title</Label>
+                <Input
+                  name="title"
+                  value={editJobData.title}
+                  onChange={handleEditChange}
+                  required
+                />
+              </div>
+              <div>
+                <Label>Location</Label>
+                <Input
+                  name="location"
+                  value={editJobData.location}
+                  onChange={handleEditChange}
+                  required
+                />
+              </div>
+              <div>
+                <Label>Qualification</Label>
+                <Input
+                  name="qualification"
+                  value={editJobData.qualification}
+                  onChange={handleEditChange}
+                  required
+                />
+              </div>
+              <div>
+                <Label>Experience Level</Label>
+                <Select
+                  value={editJobData.experience_level}
+                  onValueChange={val => setEditJobData(prev => ({ ...prev, experience_level: val }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select experience level" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fresher">Fresher</SelectItem>
+                    <SelectItem value="experienced">Experienced</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Notice Period</Label>
+                <Input
+                  name="notice_period"
+                  value={editJobData.notice_period || ''}
+                  onChange={handleEditChange}
+                />
+              </div>
+              <div>
+                <Label>Salary Range</Label>
+                <Input
+                  name="salary_range"
+                  value={editJobData.salary_range || ''}
+                  onChange={handleEditChange}
+                />
+              </div>
+              <div>
+                <Label>Application Deadline</Label>
+                <Input
+                  type="date"
+                  name="application_deadline"
+                  value={editJobData.application_deadline ? editJobData.application_deadline.split('T')[0] : ''}
+                  onChange={handleEditChange}
+                />
+              </div>
+              <div>
+                <Label>Job Description</Label>
+                <Textarea
+                  name="job_description"
+                  value={editJobData.job_description}
+                  onChange={handleEditChange}
+                  rows={4}
+                  required
+                />
+              </div>
+              <div>
+                <Label>Required Skills (comma separated)</Label>
+                <Input
+                  value={editJobData.skills_required.join(', ')}
+                  onChange={e => handleEditSkillsChange(e.target.value)}
+                  required
+                />
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsEditModalOpen(false)}
+                  disabled={editLoading}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={editLoading}
+                >
+                  {editLoading ? "Updating..." : "Save Changes"}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
     </div>

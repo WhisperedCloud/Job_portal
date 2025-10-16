@@ -59,10 +59,10 @@ interface UserBan {
 interface UserData {
   id: string;
   name: string;
-  email: string;
   role: string;
   status: string;
   joinDate: string;
+  email: string; // <-- Added email property
   email_confirmed_at?: string;
   banned_until?: string;
   isBanned?: boolean;
@@ -133,7 +133,7 @@ const Users = () => {
       if (userRoles) {
         for (const userRole of userRoles) {
           let name = 'Unknown User';
-          let email = 'N/A';
+          let email = userRole.email || 'N/A'; 
           let email_confirmed_at = undefined;
           let banned_until = undefined;
           let isBanned = false;
@@ -170,10 +170,6 @@ const Users = () => {
             const { data: authUser } = await supabase.auth.admin.getUserById(userRole.user_id);
             
             if (authUser?.user) {
-              const userEmail = authUser.user.email;
-              if (userEmail && userEmail.includes('@') && userEmail.includes('.')) {
-                email = userEmail;
-              }
               email_confirmed_at = authUser.user.email_confirmed_at;
             }
           } catch (authError) {
@@ -204,9 +200,9 @@ const Users = () => {
           allUsers.push({
             id: userRole.user_id,
             name: name,
-            email: email,
             role: userRole.role,
             status: status,
+            email: email, // <-- Assign email here
             joinDate: new Date(userRole.created_at).toLocaleDateString('en-US', { 
               day: 'numeric', 
               month: 'short', 
@@ -228,76 +224,37 @@ const Users = () => {
     }
   };
 
-  const getValidEmailForUser = async (userId: string): Promise<string | null> => {
-    try {
-      const { data: authUser, error } = await supabase.auth.admin.getUserById(userId);
-      
-      if (error || !authUser?.user) {
-        return null;
-      }
-
-      const email = authUser.user.email;
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (email && emailRegex.test(email)) {
-        return email;
-      }
-
-      return null;
-    } catch (error) {
-      return null;
-    }
-  };
-
   const handleBanUser = async () => {
     if (!selectedUser || !banDuration) {
       toast.error('Please select a ban duration');
       return;
     }
-
+  
     try {
       setActionLoading(true);
-
-      const now = new Date();
-      let banUntil: Date;
-
-      switch (banDuration) {
-        case '1day':
-          banUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-          break;
-        case '1week':
-          banUntil = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-          break;
-        case '1month':
-          banUntil = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-          break;
-        case 'permanent':
-          banUntil = new Date(now.getTime() + 100 * 365 * 24 * 60 * 60 * 1000);
-          break;
-        default:
-          throw new Error('Invalid ban duration');
+  
+      const response = await supabase.functions.invoke('admin-user-actions', {
+        body: {
+          action: 'ban_user',
+          userId: selectedUser.id,
+          data: {
+            duration: banDuration,
+            reason: `Banned for ${banDuration}`,
+            adminId: currentUser?.id, 
+          },
+        },
+      });
+  
+      if (response.error) {
+        const errorMessage = response.error.message || JSON.stringify(response.error);
+        throw new Error(`Function error: ${errorMessage}`);
       }
 
-      const { error: banError } = await (supabase
-        .from('user_bans' as any)
-        .upsert(
-          {
-            user_id: selectedUser.id,
-            banned_by: currentUser?.id,
-            banned_at: now.toISOString(),
-            banned_until: banUntil.toISOString(),
-            is_active: true,
-            reason: `Banned for ${banDuration}`,
-            updated_at: now.toISOString(),
-          },
-          {
-            onConflict: 'user_id',
-          }
-        )
-        .select()
-        .single()) as { data: UserBan | null; error: any };
+      const data = response.data;
 
-      if (banError) {
-        throw new Error(`Failed to ban user: ${banError.message}`);
+      if (!data || data.success === false) {
+        const errorMsg = data?.error || data?.message || 'Unknown error from function';
+        throw new Error(errorMsg);
       }
 
       const durationText = banDuration === 'permanent' ? 'permanently' : `for ${banDuration}`;
@@ -306,7 +263,12 @@ const Users = () => {
       setUsers(prevUsers => 
         prevUsers.map(u => 
           u.id === selectedUser.id 
-            ? { ...u, status: 'banned', isBanned: true, banned_until: banUntil.toISOString() } 
+            ? { 
+                ...u, 
+                status: 'banned', 
+                isBanned: true, 
+                banned_until: data.data?.banned_until 
+              } 
             : u
         )
       );
@@ -328,17 +290,19 @@ const Users = () => {
     try {
       setActionLoading(true);
 
-      const { error: unbanError } = await supabase
-        .from('user_bans' as any)
-        .update({
-          is_active: false,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('user_id', userId)
-        .eq('is_active', true);
+      const { data, error } = await supabase.functions.invoke('admin-user-actions', {
+        body: {
+          action: 'unban_user',
+          userId: userId,
+        },
+      });
 
-      if (unbanError) {
-        throw new Error(`Failed to unban user: ${unbanError.message}`);
+      if (error) {
+        throw new Error(error.message || 'Failed to unban user');
+      }
+
+      if (!data?.success) {
+        throw new Error(data?.error || 'Failed to unban user');
       }
 
       toast.success(`✅ Ban revoked for ${userName}`);
@@ -360,51 +324,25 @@ const Users = () => {
     }
   };
 
-  const handleResetPassword = async (userId: string, email: string, userName: string) => {
-    try {
-      setActionLoading(true);
-
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!email || email === 'N/A' || !emailRegex.test(email)) {
-        const validEmail = await getValidEmailForUser(userId);
-        
-        if (!validEmail) {
-          throw new Error('User does not have a valid email address');
-        }
-        
-        email = validEmail;
-      }
-
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
-
-      if (error) throw error;
-
-      toast.success(`📧 Password reset email sent to ${userName}`);
-    } catch (error: any) {
-      console.error('Error resetting password:', error);
-      toast.error(error.message.includes('email') ? 'Invalid email address' : error.message);
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
   const handleDeleteUser = async () => {
     if (!selectedUser) return;
 
     try {
       setActionLoading(true);
 
-      await supabase.from('user_bans' as any).delete().eq('user_id', selectedUser.id);
-      await supabase.from('user_roles').delete().eq('user_id', selectedUser.id);
-      await supabase.from('candidates').delete().eq('user_id', selectedUser.id);
-      await supabase.from('recruiters').delete().eq('user_id', selectedUser.id);
-      
-      try {
-        await supabase.auth.admin.deleteUser(selectedUser.id);
-      } catch (authError) {
-        console.error('Auth delete error (non-critical):', authError);
+      const { data, error } = await supabase.functions.invoke('admin-user-actions', {
+        body: {
+          action: 'delete_user',
+          userId: selectedUser.id,
+        },
+      });
+
+      if (error) {
+        throw new Error(error.message || 'Failed to delete user');
+      }
+
+      if (!data?.success) {
+        throw new Error(data?.error || 'Failed to delete user');
       }
 
       toast.success(`🗑️ ${selectedUser.name} has been deleted`);
@@ -468,20 +406,7 @@ const Users = () => {
     const isBanned = isUserBanned(user);
     const isAdmin = user.role === 'admin';
     const isSelf = user.id === currentUser?.id;
-    const hasValidEmail = user.email && user.email !== 'N/A' && user.email.includes('@');
 
-    // Reset Password - only for users with valid email
-    if (!isSelf && currentUserRole === 'admin' && hasValidEmail) {
-      actions.push({
-        id: 'reset-password',
-        label: 'Reset Password',
-        icon: <RefreshCw className="h-4 w-4 mr-2" />,
-        onClick: () => handleResetPassword(user.id, user.email, user.name),
-        condition: true,
-      });
-    }
-
-    // Revoke Ban - only for banned users
     if (isBanned && !isSelf && currentUserRole === 'admin') {
       actions.push({
         id: 'revoke-ban',
@@ -494,7 +419,6 @@ const Users = () => {
       });
     }
 
-    // Ban User - only for active non-admin users
     if (!isBanned && !isSelf && !isAdmin && currentUserRole === 'admin') {
       actions.push({
         id: 'ban',
@@ -510,7 +434,6 @@ const Users = () => {
       });
     }
 
-    // Delete User - only for non-admins
     if (!isAdmin && !isSelf && currentUserRole === 'admin') {
       actions.push({
         id: 'delete',
@@ -530,8 +453,8 @@ const Users = () => {
   };
 
   const filteredUsers = users.filter(user => {
-    const matchesSearch = user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         user.email.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = user.name.toLowerCase().includes(searchTerm.toLowerCase())
+      || user.email.toLowerCase().includes(searchTerm.toLowerCase()); // <-- Enable search by email
     const matchesRole = roleFilter === 'all' || user.role === roleFilter;
     const matchesStatus = statusFilter === 'all' || user.status === statusFilter;
     return matchesSearch && matchesRole && matchesStatus;
@@ -733,7 +656,7 @@ const Users = () => {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Name</TableHead>
-                          <TableHead>Email</TableHead>
+                          <TableHead>Email</TableHead> {/* <-- Added Email column */}
                           <TableHead>Role</TableHead>
                           <TableHead>Status</TableHead>
                           <TableHead>Join Date</TableHead>
@@ -762,7 +685,7 @@ const Users = () => {
                                   </div>
                                 </div>
                               </TableCell>
-                              <TableCell>{user.email}</TableCell>
+                              <TableCell>{user.email}</TableCell> {/* <-- Show email here */}
                               <TableCell>
                                 <Badge className={getRoleBadgeColor(user.role)}>
                                   {user.role}
@@ -803,105 +726,108 @@ const Users = () => {
                                     <DropdownMenuContent align="end" className="w-56">
                                       <DropdownMenuLabel>Actions ({userActions.length})</DropdownMenuLabel>
                                       <DropdownMenuSeparator />
-                                      {userActions.map((action, index) => (
-                                        <React.Fragment key={action.id}>
-                                          {(action.variant === 'destructive' || action.variant === 'warning') && index > 0 && <DropdownMenuSeparator />}
-                                          <DropdownMenuItem onClick={action.onClick} className={action.className}>
-                                            {action.icon}
-                                            {action.label}
-                                          </DropdownMenuItem>
-                                        </React.Fragment>
+                                      {userActions.map((action) => (
+                                        <DropdownMenuItem
+                                          key={action.id}
+                                          onClick={action.onClick}
+                                          className={action.className || ''}
+                                          data-variant={action.variant}
+                                          disabled={actionLoading}
+                                        >
+                                          {action.icon}
+                                          {action.label}
+                                        </DropdownMenuItem>
                                       ))}
                                     </DropdownMenuContent>
-                                  </DropdownMenu>
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </main>
-      </div>
+                                    </DropdownMenu>
+                                    )}
+                                    </TableCell>
+                                    </TableRow>
+                                    );
+                                    })}
+                                    </TableBody>
+                                    </Table>
+                                    </div>
+                                    )}
+                                    </CardContent>
+                                    </Card>
+                                    </div>
+                                    </main>
+                                    </div>
+                                    {/* Ban User Dialog */}
+                                    <Dialog open={isBanDialogOpen} onOpenChange={setIsBanDialogOpen}>
+                                      <DialogContent>
+                                        <DialogHeader>
+                                          <DialogTitle>Ban User</DialogTitle>
+                                          <DialogDescription>
+                                            Ban <span className="font-bold">{selectedUser?.name}</span> from accessing the portal.
+                                          </DialogDescription>
+                                        </DialogHeader>
+                                        <div className="space-y-4">
+                                          <Label htmlFor="banDuration">Ban Duration</Label>
+                                          <Select value={banDuration} onValueChange={setBanDuration}>
+                                            <SelectTrigger id="banDuration">
+                                              <SelectValue placeholder="Select ban duration" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              <SelectItem value="1 day">1 day</SelectItem>
+                                              <SelectItem value="7 days">7 days</SelectItem>
+                                              <SelectItem value="30 days">30 days</SelectItem>
+                                              <SelectItem value="permanent">Permanent</SelectItem>
+                                            </SelectContent>
+                                          </Select>
+                                        </div>
+                                        <DialogFooter>
+                                          <Button 
+                                            variant="outline" 
+                                            onClick={() => setIsBanDialogOpen(false)}
+                                            disabled={actionLoading}
+                                          >
+                                            Cancel
+                                          </Button>
+                                          <Button 
+                                            variant="destructive"
+                                            onClick={handleBanUser}
+                                            disabled={actionLoading || !banDuration}
+                                          >
+                                            {actionLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Ban className="h-4 w-4 mr-2" />}
+                                            Ban User
+                                          </Button>
+                                        </DialogFooter>
+                                      </DialogContent>
+                                    </Dialog>
 
-      {/* Ban User Dialog */}
-      <Dialog open={isBanDialogOpen} onOpenChange={setIsBanDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Ban User</DialogTitle>
-            <DialogDescription>
-              Select ban duration for {selectedUser?.name}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
-              <p className="text-sm text-orange-800">
-                <strong>⚠️ Warning:</strong> Banned users cannot access their account.
-              </p>
-            </div>
-            <div>
-              <Label>Ban Duration</Label>
-              <Select value={banDuration} onValueChange={setBanDuration}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select duration" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1day">1 Day</SelectItem>
-                  <SelectItem value="1week">1 Week</SelectItem>
-                  <SelectItem value="1month">1 Month</SelectItem>
-                  <SelectItem value="permanent">Permanent</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsBanDialogOpen(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleBanUser} disabled={actionLoading || !banDuration}>
-              {actionLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Ban className="h-4 w-4 mr-2" />}
-              Ban User
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                                    {/* Delete User Dialog */}
+                                    <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                                      <DialogContent>
+                                        <DialogHeader>
+                                          <DialogTitle>Delete User</DialogTitle>
+                                          <DialogDescription>
+                                            Are you sure you want to delete <span className="font-bold">{selectedUser?.name}</span>? This action cannot be undone.
+                                          </DialogDescription>
+                                        </DialogHeader>
+                                        <DialogFooter>
+                                          <Button 
+                                            variant="outline"
+                                            onClick={() => setIsDeleteDialogOpen(false)}
+                                            disabled={actionLoading}
+                                          >
+                                            Cancel
+                                          </Button>
+                                          <Button 
+                                            variant="destructive"
+                                            onClick={handleDeleteUser}
+                                            disabled={actionLoading}
+                                          >
+                                            {actionLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
+                                            Delete User
+                                          </Button>
+                                        </DialogFooter>
+                                      </DialogContent>
+                                    </Dialog>
+                                    </div>
+                                    );
+                                    };
 
-      {/* Delete User Dialog */}
-      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete User</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete {selectedUser?.name}?
-            </DialogDescription>
-          </DialogHeader>
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 my-4">
-            <p className="text-sm text-red-800">
-              <strong>⚠️ This action cannot be undone!</strong>
-            </p>
-            <p className="text-sm text-red-700 mt-2">
-              This will permanently delete:
-            </p>
-            <ul className="text-sm text-red-700 list-disc list-inside mt-1">
-              <li>User account and authentication</li>
-              <li>User profile data</li>
-              <li>All associated records</li>
-            </ul>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDeleteUser} disabled={actionLoading}>
-              {actionLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
-              Delete Permanently
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-};
+ export default Users;
 
-export default Users;

@@ -13,6 +13,8 @@ import Sidebar from '../components/Layout/Sidebar';
 import { useNavigate } from 'react-router-dom';
 import { X, Plus, Eye, Briefcase, MapPin, Clock, DollarSign, CheckCircle2 } from 'lucide-react';
 import { useRecruiter } from '@/hooks/useRecruiter';
+import { supabase } from '@/integrations/supabase/client';
+import { notifyCandidatesOnJobPost } from '@/utils/notifyCandidatesOnJobPost';
 
 const CreateJob = () => {
   const { user } = useAuth();
@@ -100,7 +102,19 @@ const CreateJob = () => {
     };
 
     try {
-      await createJob(jobData);
+      // Create job and get the created job object
+      const createdJob = await createJob(jobData);
+
+      // Notify candidates whose skills match the posted job
+      if (createdJob && createdJob.id) {
+        await notifyCandidatesOnJobPost(supabase, {
+          ...createdJob,
+          skills_required: skills,
+          company_name: formData.company_name,
+          location: formData.location,
+        });
+      }
+
       navigate('/jobs/posted');
     } catch (error) {
       console.error('Job submission failed:', error);

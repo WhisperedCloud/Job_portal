@@ -2,6 +2,7 @@
 export type UserRole = 'candidate' | 'recruiter' | 'admin';
 
 export interface User {
+  candidate_id: any;
   id: string;
   email: string;
   role: UserRole;

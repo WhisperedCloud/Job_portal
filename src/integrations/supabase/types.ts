@@ -15,6 +15,7 @@ export type Database = {
           candidate_id: string
           cover_letter: string | null
           id: string
+          email?: string
           job_id: string
           status: string | null
           updated_at: string | null
@@ -27,6 +28,7 @@ export type Database = {
           candidate_id: string
           cover_letter?: string | null
           id?: string
+          email?: string
           job_id: string
           status?: string | null
           updated_at?: string | null
@@ -78,6 +80,7 @@ export type Database = {
           skills: string[] | null
           updated_at: string | null
           user_id: string
+          email?: string
         }
         Insert: {
           created_at?: string | null
@@ -93,6 +96,7 @@ export type Database = {
           skills?: string[] | null
           updated_at?: string | null
           user_id: string
+          email?: string
         }
         Update: {
           created_at?: string | null
@@ -108,6 +112,7 @@ export type Database = {
           skills?: string[] | null
           updated_at?: string | null
           user_id?: string
+          email?: string
         }
         Relationships: []
       }
@@ -222,6 +227,7 @@ export type Database = {
           role: string
           updated_at: string | null
           user_id: string
+          email?: string | null
         }
         Insert: {
           created_at?: string | null
@@ -229,6 +235,7 @@ export type Database = {
           role: string
           updated_at?: string | null
           user_id: string
+          email?: string | null
         }
         Update: {
           created_at?: string | null
@@ -236,6 +243,7 @@ export type Database = {
           role?: string
           updated_at?: string | null
           user_id?: string
+          email?: string | null
         }
         Relationships: []
       }
@@ -375,6 +383,41 @@ export type Database = {
           }
         ]
       }
+      notifications: {
+        Row: {
+          id: string
+          user_id: string
+          type: string
+          data: Json
+          is_read: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          type: string
+          data: Json
+          is_read?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          type?: string
+          data?: Json
+          is_read?: boolean
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "user_roles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -394,6 +437,16 @@ export type Database = {
       [_ in never]: never
     }
   }
+}
+
+// Attach candidate_id to your User type for context
+export interface User {
+  id: string;
+  email: string;
+  role: "candidate" | "recruiter" | "admin"; // Define UserRole directly
+  candidate_id?: string; // <--- Add this to support candidate context in the app
+  created_at: string;
+  // ...other properties
 }
 
 type DefaultSchema = Database[Extract<keyof Database, "public">]

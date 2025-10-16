@@ -32,37 +32,62 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const { toast } = useToast();
   const initRef = useRef(false);
 
+  const DEPLOYED_URL = "https://job-portal-a8zj.vercel.app";
+
+  // --- BEGIN: Persist Auth session across tab switches using localStorage ---
+  // Save session to localStorage on change
   useEffect(() => {
-    // Prevent double initialization in React Strict Mode
+    const saveSessionToStorage = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      try {
+        localStorage.setItem("supabase.auth.session", JSON.stringify(session));
+      } catch {}
+    };
+    saveSessionToStorage();
+  }, [user]);
+
+  // Restore session from localStorage on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const localSession = localStorage.getItem("supabase.auth.session");
+        if (localSession) {
+          const parsed = JSON.parse(localSession);
+          if (parsed && parsed.user) {
+            await fetchUserData(parsed.user.id, parsed.user.email || '');
+            setLoading(false);
+            setInitializing(false);
+            return;
+          }
+        }
+      } catch {}
+      // fallback to normal flow if not found
+    })();
+  }, []);
+  // --- END: Persist Auth session across tab switches using localStorage ---
+
+  useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
 
-    console.log('🔄 Initializing Auth...');
-
     const initializeAuth = async () => {
       try {
-        // Check for Supabase session with 3s timeout
-        console.log('🔍 Checking Supabase session...');
-        const timeoutPromise = new Promise((_, reject) => 
+        const timeoutPromise = new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Session check timeout')), 3000)
         );
-
         const sessionPromise = supabase.auth.getSession();
 
         const { data: { session }, error: sessionError } = await Promise.race([
           sessionPromise,
           timeoutPromise
         ]) as any;
-        
+
         if (sessionError) {
-          console.error('❌ Session error:', sessionError);
           setUser(null);
           setLoading(false);
           setInitializing(false);
-          
-          // Redirect to login if session expired and on protected route
-          if (location.pathname !== '/login' && 
-              location.pathname !== '/register' && 
+          if (location.pathname !== '/login' &&
+              location.pathname !== '/register' &&
               location.pathname !== '/') {
             toast({
               title: "Session Expired",
@@ -75,46 +100,33 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
 
         if (session?.user) {
-          console.log('✅ Found active session for user:', session.user.id);
           await fetchUserData(session.user.id, session.user.email || '');
         } else {
-          console.log('ℹ️ No active session found');
           setUser(null);
-          
-          // Redirect to login if no session and trying to access protected route
           const publicRoutes = ['/login', '/register', '/'];
           if (!publicRoutes.includes(location.pathname)) {
             navigate('/login', { replace: true });
           }
         }
       } catch (error) {
-        console.error('❌ Error initializing auth:', error);
         setUser(null);
-        
-        // Redirect to login on error if on protected route
-        if (location.pathname !== '/login' && 
-            location.pathname !== '/register' && 
+        if (location.pathname !== '/login' &&
+            location.pathname !== '/register' &&
             location.pathname !== '/') {
           navigate('/login', { replace: true });
         }
       } finally {
         setLoading(false);
         setInitializing(false);
-        console.log('✅ Auth initialization complete');
       }
     };
 
     initializeAuth();
 
-    // Listen for auth changes with better handling
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('🔔 Auth state changed:', event);
-      
       if (event === 'SIGNED_IN' && session?.user) {
-        console.log('✅ User signed in:', session.user.id);
         await fetchUserData(session.user.id, session.user.email || '');
       } else if (event === 'SIGNED_OUT') {
-        console.log('👋 User signed out');
         setUser(null);
         toast({
           title: "Session Expired",
@@ -122,12 +134,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         });
         navigate('/login', { replace: true });
       } else if (event === 'TOKEN_REFRESHED') {
-        console.log('🔄 Token refreshed successfully');
         if (session?.user) {
           await fetchUserData(session.user.id, session.user.email || '');
         }
       } else if (event === 'USER_UPDATED') {
-        console.log('🔄 User updated');
         if (session?.user) {
           await fetchUserData(session.user.id, session.user.email || '');
         }
@@ -141,108 +151,60 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const fetchUserData = async (userId: string, email: string) => {
     try {
-      console.log('📥 Fetching user data for:', userId);
-
-      // Get user role with 2s timeout
-      const timeoutPromise = new Promise((_, reject) => 
+      const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Request timeout')), 2000)
       );
 
-      const fetchPromise = supabase
+      // 1. Get role from user_roles
+      const fetchRolePromise = supabase
         .from('user_roles')
         .select('role')
         .eq('user_id', userId)
         .single();
 
       const { data: roleData, error: roleError } = await Promise.race([
-        fetchPromise,
+        fetchRolePromise,
         timeoutPromise
       ]) as any;
 
-      if (roleError) {
-        console.error('❌ Error fetching role:', roleError);
-        
-        // Check for authentication/authorization errors
-        if (roleError.message?.includes('JWT') || 
-            roleError.message?.includes('token') ||
-            roleError.code === 'PGRST301') {
-          console.error('🔒 Auth token invalid or expired');
-          toast({
-            title: "Session Expired",
-            description: "Please log in again.",
-            variant: "destructive"
-          });
-          setUser(null);
-          navigate('/login', { replace: true });
-          return;
-        }
-        
-        // If role doesn't exist or timeout, set user with default role immediately
-        if (roleError.code === 'PGRST116' || roleError.message === 'Request timeout') {
-          console.log('⚠️ No role found or timeout, using default role');
-          const userData: User = {
-            id: userId,
-            email: email,
-            role: 'candidate' as UserRole,
-            created_at: new Date().toISOString()
-          };
-          setUser(userData);
-          return;
-        }
-        
-        // For other errors, still set user
-        const userData: User = {
-          id: userId,
-          email: email,
-          role: 'candidate' as UserRole,
-          created_at: new Date().toISOString()
-        };
-        setUser(userData);
-        return;
+      let role = 'candidate' as UserRole;
+      if (roleData && roleData.role) {
+        role = roleData.role as UserRole;
       }
 
-      if (roleData) {
-        console.log('✅ User role:', roleData.role);
-        const userData: User = {
-          id: userId,
-          email: email,
-          role: roleData.role as UserRole,
-          created_at: new Date().toISOString()
-        };
-        setUser(userData);
+      // 2. Get candidate_id from candidates table (if candidate)
+      let candidate_id: string | undefined;
+      if (role === 'candidate') {
+        const { data: candidateRecord, error: candidateError } = await supabase
+          .from('candidates')
+          .select('id')
+          .eq('user_id', userId)
+          .single();
+        candidate_id = candidateRecord?.id;
       }
+
+      setUser({
+        id: userId,
+        email: email,
+        role,
+        candidate_id,
+        created_at: new Date().toISOString()
+      });
+
     } catch (error: any) {
-      console.error('❌ Error fetching user data:', error);
-      
-      // Check for JWT or token errors
-      if (error.message?.includes('JWT') || 
-          error.message?.includes('token') ||
-          error.message?.includes('expired')) {
-        toast({
-          title: "Session Expired",
-          description: "Your session has expired. Please log in again.",
-          variant: "destructive"
-        });
-        setUser(null);
-        navigate('/login', { replace: true });
-        return;
-      }
-      
-      // On any other error, set basic user data immediately
-      const userData: User = {
+      setUser({
         id: userId,
         email: email,
         role: 'candidate' as UserRole,
+        candidate_id: undefined,
         created_at: new Date().toISOString()
-      };
-      setUser(userData);
+      });
     }
   };
 
   const login = async (email: string, password: string) => {
     try {
       setLoading(true);
-      console.log('🔐 Attempting login for:', email);
 
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -250,7 +212,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       });
 
       if (error) {
-        console.error('❌ Login error:', error);
         toast({
           title: "Login Failed",
           description: error.message || "Invalid login credentials",
@@ -261,24 +222,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
 
       if (data.user) {
-        console.log('✅ Login successful');
-        
-        // Fetch user data
         await fetchUserData(data.user.id, data.user.email || '');
-        
         toast({
           title: "Login Successful",
           description: "Welcome back!",
         });
-
-        console.log('🚀 Navigating to dashboard');
-        
-        // Navigate immediately
         navigate('/dashboard', { replace: true });
         setLoading(false);
       }
     } catch (error) {
-      console.error('❌ Login failed:', error);
       setLoading(false);
       throw error;
     }
@@ -287,8 +239,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const register = async (email: string, password: string, role: UserRole) => {
     try {
       setLoading(true);
-      console.log('📝 Starting registration process...', { email, role });
-      
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -296,14 +246,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           data: {
             role: role
           },
-          emailRedirectTo: `${window.location.origin}/login`
+          emailRedirectTo: `${DEPLOYED_URL}/login`
         }
       });
 
-      console.log('📤 Supabase auth signup response:', { data, error });
-
       if (error) {
-        console.error('❌ Supabase auth error:', error);
         toast({
           title: "Registration Failed",
           description: error.message,
@@ -314,22 +261,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
 
       if (data.user) {
-        console.log('✅ User created successfully:', data.user.id);
-        
-        // Reduced wait time
         await new Promise(resolve => setTimeout(resolve, 500));
-        
         toast({
           title: "Registration Successful",
           description: "Account created successfully. You can now log in.",
         });
-
-        // Navigate immediately
         navigate('/login', { replace: true });
         setLoading(false);
       }
     } catch (error) {
-      console.error('❌ Registration failed:', error);
       setLoading(false);
       throw error;
     }
@@ -338,31 +278,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const logout = async () => {
     try {
       setLoading(true);
-      console.log('👋 Logging out...');
-      
-      // Sign out from Supabase
       const { error } = await supabase.auth.signOut();
-      
+
       if (error) {
         console.error('❌ Logout error:', error);
       }
-      
-      // Clear user state
+
       setUser(null);
-      
       toast({
         title: "Logged out",
         description: "You have been successfully logged out.",
       });
-
-      console.log('🚀 Navigating to login...');
-      
-      // Navigate immediately
       navigate('/login', { replace: true });
       setLoading(false);
-      
+
     } catch (error) {
-      console.error('❌ Logout error:', error);
       setLoading(false);
       setUser(null);
       navigate('/login', { replace: true });
@@ -377,18 +307,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const filePath = `${user.id}/${file.name}`;
 
     const { data, error } = await supabase.storage
-      .from('Resumes') 
+      .from('Resumes')
       .upload(filePath, file, { upsert: true });
 
     if (error) {
-      console.error("Resume upload failed:", error.message);
       throw error;
     }
 
     return data;
   };
 
-  // Show minimal loading spinner during initial load
   if (initializing) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -404,7 +332,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       login,
       register,
       logout,
-      uploadResume, 
+      uploadResume,
     }}>
       {children}
     </AuthContext.Provider>
