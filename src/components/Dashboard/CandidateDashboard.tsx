@@ -165,6 +165,33 @@ const CandidateDashboard = () => {
     fetchDashboardData();
   };
 
+  // Subscribe to notifications for real-time updates
+  useEffect(() => {
+    if (!user) return;
+    let subscription;
+    const subscribeToNotifications = async () => {
+      const userRoleId = await fetchUserRoleId(user.email);
+      subscription = supabase
+        .channel('notifications')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${userRoleId}`,
+          },
+          () => fetchDashboardData()
+        )
+        .subscribe();
+    };
+    subscribeToNotifications();
+    return () => {
+      if (subscription) subscription.unsubscribe();
+    };
+    // eslint-disable-next-line
+  }, [user]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8">
