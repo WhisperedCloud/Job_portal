@@ -21,91 +21,86 @@ serve(async (req) => {
     let result;
 
     switch (action) {
-      case 'verify_email':
-        result = await supabase.auth.admin.updateUserById(userId, {
-          email_confirm: true,
-        });
-        break;
-
       case 'reset_password':
         result = await supabase.auth.admin.updateUserById(userId, {
           password: data.temporaryPassword || 'TempPass123!',
         });
-        
-        // Send email notification
-        const { data: userData } = await supabase.auth.admin.getUserById(userId);
-        if (userData?.user?.email) {
-          await supabase.auth.resetPasswordForEmail(userData.user.email);
-        }
         break;
 
       case 'ban_user':
+        // Validate adminId
+        if (!data.adminId) throw new Error('Missing adminId for ban action');
+        if (!data.duration) throw new Error('Missing duration for ban action');
+
         const banUntil = new Date();
+        // Accept both backend and frontend duration formats
         switch (data.duration) {
           case '1day':
+          case '1 day':
             banUntil.setDate(banUntil.getDate() + 1);
             break;
+          case '7days':
           case '1week':
+          case '7 days':
+          case '1 week':
             banUntil.setDate(banUntil.getDate() + 7);
             break;
+          case '30days':
           case '1month':
+          case '30 days':
+          case '1 month':
             banUntil.setMonth(banUntil.getMonth() + 1);
             break;
           case 'permanent':
             banUntil.setFullYear(banUntil.getFullYear() + 100);
             break;
+          default:
+            throw new Error('Invalid ban duration');
         }
-
         result = await supabase.auth.admin.updateUserById(userId, {
-          banned: true,
-          ban_duration: banUntil.toISOString(),
+          user_metadata: { banned: true, ban_duration: banUntil.toISOString() },
         });
+        // Upsert ban record
+        const upsertResult = await supabase.from('user_bans').upsert({
+          user_id: userId,
+          banned_by: data.adminId,
+          banned_at: new Date().toISOString(),
+          banned_until: banUntil.toISOString(),
+          is_active: true,
+          reason: `Banned for ${data.duration}`,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id' });
+        if (upsertResult.error) throw upsertResult.error;
         break;
 
       case 'unban_user':
         result = await supabase.auth.admin.updateUserById(userId, {
-          banned: false,
-          ban_duration: 'none',
+          user_metadata: { banned: false, ban_duration: null },
         });
+        const updateResult = await supabase.from('user_bans').update({
+          is_active: false,
+          updated_at: new Date().toISOString(),
+        }).eq('user_id', userId).eq('is_active', true);
+        if (updateResult.error) throw updateResult.error;
         break;
 
       case 'change_role':
-        // Update user_roles table
+        if (!data.newRole) throw new Error('Missing newRole for change_role action');
         const { error: roleError } = await supabase
           .from('user_roles')
           .update({ role: data.newRole, updated_at: new Date().toISOString() })
           .eq('user_id', userId);
-
         if (roleError) throw roleError;
-
-        // Update user metadata
         result = await supabase.auth.admin.updateUserById(userId, {
           user_metadata: { role: data.newRole },
         });
-
-        // Create notification for user
-        const { data: candidate } = await supabase
-          .from('candidates')
-          .select('name')
-          .eq('user_id', userId)
-          .single();
-
-        await supabase
-          .from('notifications')
-          .insert({
-            user_id: userId,
-            candidate_id: userId,
-            type: 'role_changed',
-            title: '🎭 Your Role Has Been Updated',
-            message: `Your account role has been changed to: ${data.newRole}\n\nYou may need to log out and log back in to see the changes.`,
-          });
         break;
 
       case 'delete_user':
-        // Delete from user_roles first
         await supabase.from('user_roles').delete().eq('user_id', userId);
-        
-        // Delete user
+        await supabase.from('candidates').delete().eq('user_id', userId);
+        await supabase.from('recruiters').delete().eq('user_id', userId);
+        await supabase.from('user_bans').delete().eq('user_id', userId);
         result = await supabase.auth.admin.deleteUser(userId);
         break;
 
@@ -113,15 +108,12 @@ serve(async (req) => {
         throw new Error('Invalid action');
     }
 
-    if (result?.error) {
-      throw result.error;
-    }
+    if (result?.error) throw result.error;
 
     return new Response(
       JSON.stringify({ success: true, data: result?.data }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-
   } catch (err: any) {
     console.error("Error:", err);
     return new Response(

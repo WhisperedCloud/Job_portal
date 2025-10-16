@@ -33,6 +33,7 @@ const CandidateProfile = () => {
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
 
+  // Autofillable state
   const [personalDetails, setPersonalDetails] = useState({ name: '', phone: '', email: '' });
   const [locationData, setLocationData] = useState('');
   const [educationData, setEducationData] = useState('');
@@ -51,10 +52,36 @@ const CandidateProfile = () => {
       setExperienceData(profile.experience || '');
       setLicenseData({ type: profile.license_type || '', number: profile.license_number || '' });
       setSelectedSkills(profile.skills || []);
-      // Add job seeking status if you have it in profile
       // setIsLookingForJob(profile.is_looking_for_job ?? true);
     }
   }, [profile, user]);
+
+  // Autofill all form fields from resume analysis result
+  const handleResumeUpload = async (file: File) => {
+    try {
+      setIsUploading(true);
+      if (!file) return;
+
+      const autofilled = await uploadAndAutofillResume(file);
+
+      if (autofilled) {
+        if (autofilled.name) setPersonalDetails(details => ({ ...details, name: autofilled.name }));
+        if (autofilled.phone) setPersonalDetails(details => ({ ...details, phone: autofilled.phone }));
+        if (autofilled.location) setLocationData(autofilled.location);
+        if (autofilled.skills) setSelectedSkills(autofilled.skills);
+        if (autofilled.education) setEducationData(autofilled.education);
+        if (autofilled.experience) setExperienceData(autofilled.experience);
+        if (autofilled.license_type) setLicenseData(lic => ({ ...lic, type: autofilled.license_type }));
+        if (autofilled.license_number) setLicenseData(lic => ({ ...lic, number: autofilled.license_number }));
+        toast.success("Profile autofilled from resume!");
+      }
+    } catch (error) {
+      console.error('Error uploading resume:', error);
+      toast.error("Could not autofill profile from resume.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const handleJobSeekingToggle = async (checked: boolean) => {
     setIsLookingForJob(checked);
@@ -87,19 +114,6 @@ const CandidateProfile = () => {
 
   const handleRemoveSkill = (skillToRemove: string) => {
     setSelectedSkills(prev => prev.filter(skill => skill !== skillToRemove));
-  };
-
-  const handleResumeUpload = async (file: File) => {
-    try {
-      setIsUploading(true);
-      if (!file) return;
-      
-      await uploadAndAutofillResume(file);
-    } catch (error) {
-      console.error('Error uploading resume:', error);
-    } finally {
-      setIsUploading(false);
-    }
   };
 
   const handleUpdatePersonalDetails = async () =>

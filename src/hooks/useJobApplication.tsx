@@ -1,4 +1,3 @@
-// src/hooks/useJobApplication.ts
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -41,7 +40,26 @@ export const useJobApplication = () => {
         .select()
         .single();
 
-      if (applicationError) throw applicationError;
+      // Improved duplicate application error handling (robust for different error shapes)
+      if (applicationError) {
+        const errorText = (
+          applicationError?.message ||
+          applicationError?.details ||
+          applicationError?.toString()
+        )?.toLowerCase();
+
+        if (
+          errorText &&
+          errorText.includes('duplicate key value') &&
+          errorText.includes('idx_applications_job_candidate')
+        ) {
+          toast.error('Already Applied');
+          setUploadProgress('');
+          setIsSubmitting(false);
+          return null;
+        }
+        throw applicationError;
+      }
 
       // Step 3: Update candidate's latest resume URL if different
       if (resumeUrl && profile.resume_url !== resumeUrl) {
@@ -57,7 +75,17 @@ export const useJobApplication = () => {
 
     } catch (error: any) {
       console.error('Error submitting application:', error);
-      toast.error(`Failed to submit application: ${error.message}`);
+      // Extra bulletproof check for duplicate error in catch block
+      const errorText =
+        (error?.message || error?.details || error?.toString()).toLowerCase();
+      if (
+        errorText.includes('duplicate key value') &&
+        errorText.includes('idx_applications_job_candidate')
+      ) {
+        toast.error('Already Applied');
+        return null;
+      }
+      toast.error(`Failed to submit application: ${error.message || error.toString()}`);
       throw error;
     } finally {
       setIsSubmitting(false);

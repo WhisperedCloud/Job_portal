@@ -69,6 +69,7 @@ const RecruiterApplications = () => {
   const [analyzingAll, setAnalyzingAll] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0 });
   const [selectedJob, setSelectedJob] = useState('all');
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [selectedResume, setSelectedResume] = useState<string | null>(null);
   const [isResumeModalOpen, setIsResumeModalOpen] = useState(false);
   const [sortByScore, setSortByScore] = useState(false);
@@ -95,7 +96,7 @@ const RecruiterApplications = () => {
   const fetchApplications = async () => {
     try {
       setLoading(true);
-      
+      // Find recruiter's id
       const { data: recruiterData, error: recruiterError } = await supabase
         .from('recruiters')
         .select('id')
@@ -104,6 +105,7 @@ const RecruiterApplications = () => {
 
       if (recruiterError) throw recruiterError;
 
+      // Get all applications for jobs posted by this recruiter
       const { data, error } = await supabase
         .from('applications')
         .select(`
@@ -133,6 +135,7 @@ const RecruiterApplications = () => {
 
       if (error) throw error;
 
+      // Get analysis info for each application
       const appsWithAnalysis = await Promise.all(
         (data || []).map(async (app) => {
           const { data: analysisData } = await supabase
@@ -161,7 +164,6 @@ const RecruiterApplications = () => {
 
   const formatTime = (timeString: string) => {
     if (!timeString) return 'Not set';
-    
     try {
       if (timeString.match(/^\d{2}:\d{2}(:\d{2})?$/)) {
         const [hours, minutes] = timeString.split(':');
@@ -171,7 +173,6 @@ const RecruiterApplications = () => {
         const displayHour = hour % 12 || 12;
         return `${displayHour}:${minute} ${ampm}`;
       }
-      
       const date = new Date(timeString);
       if (!isNaN(date.getTime())) {
         return date.toLocaleTimeString('en-US', {
@@ -180,7 +181,6 @@ const RecruiterApplications = () => {
           hour12: true
         });
       }
-      
       return timeString;
     } catch (error) {
       console.error('Error formatting time:', error);
@@ -188,6 +188,23 @@ const RecruiterApplications = () => {
     }
   };
 
+  let filteredApplications = selectedJob === 'all' 
+    ? applications 
+    : applications.filter(app => app.job?.id === selectedJob);
+
+  // Candidate filtering logic
+  const candidateIds = Array.from(new Set(filteredApplications.map(a => a.candidate?.id).filter(Boolean) as string[]));
+  filteredApplications = selectedCandidateId
+    ? filteredApplications.filter(app => app.candidate?.id === selectedCandidateId)
+    : filteredApplications;
+
+  if (sortByScore) {
+    filteredApplications = [...filteredApplications].sort((a, b) => {
+      const scoreA = a.analysis?.overall_match_score || 0;
+      const scoreB = b.analysis?.overall_match_score || 0;
+      return scoreB - scoreA;
+    });
+  }
   const analyzeResume = async (application: Application) => {
     if (!application.candidate?.resume_url || !application.job) {
       toast.error('Resume or job description not available');
@@ -484,7 +501,7 @@ const RecruiterApplications = () => {
     );
   }
 
-  let filteredApplications = selectedJob === 'all' 
+  let filteredApps = selectedJob === 'all' 
     ? applications 
     : applications.filter(app => app.job?.id === selectedJob);
 
@@ -496,8 +513,8 @@ const RecruiterApplications = () => {
     });
   }
 
-  const unanalyzedCount = filteredApplications.filter(app => !app.analysis && app.candidate?.resume_url).length;
-  const analyzedCount = filteredApplications.filter(app => app.analysis).length;
+  const unanalyzedCount = filteredApps.filter(app => !app.analysis && app.candidate?.resume_url).length;
+  const analyzedCount = filteredApps.filter(app => app.analysis).length;
 
   return (
     <div className="space-y-6">
