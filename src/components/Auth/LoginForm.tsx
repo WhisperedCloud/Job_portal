@@ -12,37 +12,38 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog';
-import { Briefcase, Eye, EyeOff, Mail, KeyRound, Loader2 } from 'lucide-react';
+import { Briefcase, Eye, EyeOff, Mail, Key, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
-const LoginForm = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [resetEmail, setResetEmail] = useState('');
-  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
-  const [resetLoading, setResetLoading] = useState(false);
+const LoginForm: React.FC = () => {
+  const [email, setEmail] = useState<string>('');
+  const [password, setPassword] = useState<string>('');
+  const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [resetEmail, setResetEmail] = useState<string>('');
+  const [isResetDialogOpen, setIsResetDialogOpen] = useState<boolean>(false);
+  const [resetLoading, setResetLoading] = useState<boolean>(false);
+
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!email || !password) {
       toast.error('Please fill in all fields');
       return;
     }
 
     setLoading(true);
-    
     try {
       await login(email, password);
-      // Success handling is done in AuthContext
-    } catch (error) {
-      // Error handling is done in the AuthContext
+      // login handles navigation/toast
+    } catch (err: any) {
+      // optionally show a toast here if needed
+      toast.error(err?.message || 'Login failed');
     } finally {
       setLoading(false);
     }
@@ -54,7 +55,6 @@ const LoginForm = () => {
       return;
     }
 
-    // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(resetEmail)) {
       toast.error('Please enter a valid email address');
@@ -69,10 +69,11 @@ const LoginForm = () => {
       });
 
       if (error) {
-        if (error.message.includes('User not found')) {
+        const msg = (error.message || '').toLowerCase();
+        if (msg.includes('user not found') || msg.includes('no user')) {
           toast.error('No account found with this email address');
         } else {
-          toast.error(error.message);
+          toast.error(error.message || 'Failed to request password reset');
         }
         return;
       }
@@ -80,8 +81,8 @@ const LoginForm = () => {
       toast.success('Password reset email sent! Check your inbox.');
       setIsResetDialogOpen(false);
       setResetEmail('');
-    } catch (error: any) {
-      console.error('Password reset error:', error);
+    } catch (err) {
+      console.error('Password reset error:', err);
       toast.error('Failed to send reset email');
     } finally {
       setResetLoading(false);
@@ -89,7 +90,7 @@ const LoginForm = () => {
   };
 
   const openResetDialog = () => {
-    setResetEmail(email); // Pre-fill with login email if available
+    setResetEmail(email); // pre-fill with login email if present
     setIsResetDialogOpen(true);
   };
 
@@ -117,6 +118,7 @@ const LoginForm = () => {
               Enter your credentials to access your account
             </CardDescription>
           </CardHeader>
+
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
@@ -132,13 +134,13 @@ const LoginForm = () => {
                   className="h-11"
                 />
               </div>
-              
+
               <div>
                 <Label htmlFor="password">Password</Label>
                 <div className="relative">
                   <Input
                     id="password"
-                    type={showPassword ? "text" : "password"}
+                    type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
@@ -148,16 +150,12 @@ const LoginForm = () => {
                   />
                   <button
                     type="button"
-                    onClick={() => setShowPassword(!showPassword)}
+                    onClick={() => setShowPassword((s) => !s)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
-                    tabIndex={-1}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
                     disabled={loading}
                   >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
               </div>
@@ -174,9 +172,9 @@ const LoginForm = () => {
                 </Button>
               </div>
 
-              <Button 
-                type="submit" 
-                className="w-full h-11 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700" 
+              <Button
+                type="submit"
+                className="w-full h-11 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
                 disabled={loading}
               >
                 {loading ? (
@@ -193,7 +191,7 @@ const LoginForm = () => {
             <div className="mt-6 text-center">
               <span className="text-sm text-gray-600">
                 Don't have an account?{' '}
-                <button 
+                <button
                   onClick={() => navigate('/register')}
                   className="font-medium text-blue-600 hover:text-blue-700 hover:underline"
                   disabled={loading}
@@ -212,7 +210,7 @@ const LoginForm = () => {
           <DialogHeader>
             <div className="flex items-center justify-center mb-4">
               <div className="p-3 bg-blue-100 rounded-full">
-                <KeyRound className="h-6 w-6 text-blue-600" />
+                <Key className="h-6 w-6 text-blue-600" />
               </div>
             </div>
             <DialogTitle className="text-center text-2xl">Reset Password</DialogTitle>
@@ -220,6 +218,7 @@ const LoginForm = () => {
               Enter your email address and we'll send you a link to reset your password.
             </DialogDescription>
           </DialogHeader>
+
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="reset-email" className="flex items-center gap-2">
@@ -236,12 +235,14 @@ const LoginForm = () => {
                 className="h-11"
               />
             </div>
+
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
               <p className="text-sm text-blue-800">
                 <strong>💡 Tip:</strong> Check your spam folder if you don't receive the email within a few minutes.
               </p>
             </div>
           </div>
+
           <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button
               type="button"
@@ -255,6 +256,7 @@ const LoginForm = () => {
             >
               Cancel
             </Button>
+
             <Button
               type="button"
               onClick={handleForgotPassword}

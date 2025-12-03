@@ -44,7 +44,7 @@ const PostedJobs = () => {
     fetchPostedJobs();
   }, [profile]);
 
-  const fetchPostedJobs = async () => {
+  async function fetchPostedJobs() {
     if (!profile) {
       setLoading(false);
       return;
@@ -77,7 +77,7 @@ const PostedJobs = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   const handleView = (job) => {
     setSelectedJob(job);

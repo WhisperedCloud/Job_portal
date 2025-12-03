@@ -24,7 +24,7 @@ import { toast } from 'sonner';
 interface PlatformSetting {
   id: string;
   setting_key: string;
-  setting_value: any;
+  setting_value: string | boolean | number | null; 
   category: string;
   updated_at: string | null;
 }

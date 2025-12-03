@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 interface Interview {
   id: string;
   interview_date: string;
-  interview_time: string;
+  interview_time?: string; // now optional
   interview_venue?: string;
   interview_mode: string;
   interview_link?: string;
@@ -31,6 +31,7 @@ export const UpcomingInterviews = () => {
 
   useEffect(() => {
     fetchUpcomingInterviews();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const fetchUpcomingInterviews = async () => {
@@ -50,7 +51,6 @@ export const UpcomingInterviews = () => {
         .select(`
           id,
           interview_date,
-          -- interview_time,
           interview_venue,
           interview_mode,
           interview_link,
@@ -65,7 +65,15 @@ export const UpcomingInterviews = () => {
         .order('interview_date', { ascending: true });
 
       if (error) throw error;
-      setInterviews(data || []);
+      if (Array.isArray(data)) {
+        if (Array.isArray(data)) {
+          setInterviews(data as unknown as Interview[]);
+        } else {
+          setInterviews([]);
+        }
+      } else {
+        setInterviews([]);
+      }
     } catch (error) {
       console.error('Error fetching interviews:', error);
       toast.error('Failed to load interviews');
@@ -75,7 +83,8 @@ export const UpcomingInterviews = () => {
   };
 
   const addToCalendar = (interview: Interview) => {
-    const startDate = new Date(`${interview.interview_date}T${interview.interview_time}`);
+    const time = interview.interview_time || "00:00";
+    const startDate = new Date(`${interview.interview_date}T${time}`);
     const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
 
     const formatDate = (date: Date) => {
@@ -93,9 +102,10 @@ export const UpcomingInterviews = () => {
     window.open(googleCalendarUrl, '_blank');
   };
 
-  const getTimeUntilInterview = (interviewDate: string, interviewTime: string) => {
+  const getTimeUntilInterview = (interviewDate: string, interviewTime?: string) => {
     const now = new Date();
-    const interviewDateTime = new Date(`${interviewDate}T${interviewTime}`);
+    const time = interviewTime || "00:00";
+    const interviewDateTime = new Date(`${interviewDate}T${time}`);
     const diff = interviewDateTime.getTime() - now.getTime();
     
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
@@ -182,7 +192,7 @@ export const UpcomingInterviews = () => {
 
                     <div className="flex items-center gap-2 text-sm">
                       <Clock className="h-4 w-4 text-purple-600" />
-                      <p className="font-semibold">{interview.interview_time}</p>
+                      <p className="font-semibold">{interview.interview_time || "00:00"}</p>
                     </div>
 
                     {interview.interview_mode === 'video' && (

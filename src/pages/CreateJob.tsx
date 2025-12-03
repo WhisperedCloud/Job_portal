@@ -105,7 +105,7 @@ const CreateJob = () => {
       // Create job and get the created job object
       const createdJob = await createJob(jobData);
 
-      // Notify candidates whose skills match the posted job
+      // Notify candidates whose skills match the posted job (in-app notification)
       if (createdJob && createdJob.id) {
         await notifyCandidatesOnJobPost(supabase, {
           ...createdJob,
@@ -113,8 +113,19 @@ const CreateJob = () => {
           company_name: formData.company_name,
           location: formData.location,
         });
+
+        // Trigger Supabase Edge Function for email alerts (non-blocking for redirect)
+        fetch('https://yzppfbsoarvaodfncpjh.supabase.co/functions/v1/job-alert', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ record: { ...createdJob, skills_required: skills } }),
+        }).catch(e => {
+          // Optionally log email alert errors
+          console.error('Email job alert failed:', e);
+        });
       }
 
+      // Always redirect after job is created (even if email fails)
       navigate('/jobs/posted');
     } catch (error) {
       console.error('Job submission failed:', error);

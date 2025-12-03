@@ -15,6 +15,26 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
+async function fetchResumeText(resumeUrl: string): Promise<string | null> {
+  if (!resumeUrl) return null;
+  try {
+    // Try to fetch the resume as text. If it's a PDF, skip or add PDF parsing logic.
+    const resp = await fetch(resumeUrl);
+    if (!resp.ok) return null;
+    const contentType = resp.headers.get("content-type") || "";
+    // Only support text or PDF (if you want to parse PDF, you'll need a PDF parser)
+    if (contentType.includes("text/plain")) {
+      // Plain text resume
+      return await resp.text();
+    }
+    // If you want PDF support, you can use a PDF parsing library here (not included for brevity)
+    // Optionally: Limit resume size
+    return null;
+  } catch (_e) {
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -26,10 +46,6 @@ serve(async (req) => {
       { status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
-
-  // You *could* optionally inspect the authorization header if you want to restrict
-  // but since you're using service role internally, we don't *require* it here.
-  // const authHeader = req.headers.get("authorization");
 
   let body;
   try {
@@ -51,7 +67,6 @@ serve(async (req) => {
   }
 
   try {
-    // Supabase client using the service role key (full privileges)
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
       global: {
         headers: {
@@ -90,7 +105,17 @@ serve(async (req) => {
       );
     }
 
-    // Build prompt for Gemini
+    // ---- Fetch resume content if possible ----
+    let resumeText: string | null = null;
+    if (candidate.resume_url) {
+      resumeText = await fetchResumeText(candidate.resume_url);
+      // Optionally limit to first 2000 characters to avoid prompt size issues
+      if (resumeText && resumeText.length > 2000) {
+        resumeText = resumeText.substring(0, 2000) + "\n...[truncated]";
+      }
+    }
+
+    // Prompt for Gemini: add resume content if available
     const prompt = `You are a technical recruiter. Rate the match between this candidate and job posting as an integer from 0 to 100.
 Only reply with the integer (no explanation).
 
@@ -99,6 +124,8 @@ Candidate:
 - Skills: ${(candidate.skills || []).join(', ') || 'Not specified'}
 - Experience: ${candidate.experience || 'Not specified'}
 - Education: ${candidate.education || 'Not specified'}
+- Resume URL: ${(candidate.resume_url || '').substring(0, 200) || 'Not specified'}
+${resumeText ? `- Resume Content (first part):\n${resumeText}` : ''}
 
 Job:
 - Title: ${job.title || 'Not specified'}
@@ -182,10 +209,10 @@ Job:
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Error during processing:", err);
     return new Response(
-      JSON.stringify({ error: "Processing failed", details: err.message }),
+      JSON.stringify({ error: "Processing failed", details: (err as Error).message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
