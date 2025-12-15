@@ -114,7 +114,7 @@ Job:
     let geminiRaw = '';
 
     try {
-      const model = 'gemini-2.0-flash';
+      const model = 'gemini-2.5-flash';
       const GEMINI_API_URL =
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
 
