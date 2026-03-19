@@ -1,8 +1,8 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const VITE_SUPABASE_URL = Deno.env.get("VITE_SUPABASE_URL")!;
+const SUPABASE_SERVICE_KEY = Deno.env.get("VITE_SUPABASE_SERVICE_ROLE_KEY")!;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -34,12 +34,12 @@ serve(async (req) => {
 
   try {
     const { action, userId, data }: AdminActionRequest = await req.json();
-    
+
     if (!action || !userId) {
       throw new Error('Missing required parameters: action and userId');
     }
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+    const supabase = createClient(VITE_SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
     console.log(`[${new Date().toISOString()}] Action: ${action} | User: ${userId}`);
 
@@ -80,24 +80,24 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify(result),
-      { 
+      {
         status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" } 
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
       }
     );
 
   } catch (err: any) {
     console.error(`[${new Date().toISOString()}] ❌ Error:`, err.message);
-    
+
     return new Response(
-      JSON.stringify({ 
+      JSON.stringify({
         success: false,
         error: err.message || 'Admin action failed',
         timestamp: new Date().toISOString()
       }),
-      { 
+      {
         status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" } 
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
       }
     );
   }
@@ -110,7 +110,7 @@ async function handleResetPassword(supabase: any, userId: string): Promise<Actio
 
   // Get user's email
   const { data: userData, error: userError } = await supabase.auth.admin.getUserById(userId);
-  
+
   if (userError || !userData?.user?.email) {
     throw new Error('User not found or email not available');
   }
@@ -121,7 +121,7 @@ async function handleResetPassword(supabase: any, userId: string): Promise<Actio
   const { error: resetError } = await supabase.auth.resetPasswordForEmail(
     userData.user.email,
     {
-      redirectTo: `${SUPABASE_URL.replace('.supabase.co', '')}/reset-password`,
+      redirectTo: `${VITE_SUPABASE_URL.replace('.supabase.co', '')}/reset-password`,
     }
   );
 
@@ -129,16 +129,16 @@ async function handleResetPassword(supabase: any, userId: string): Promise<Actio
     throw new Error(`Failed to send reset email: ${resetError.message}`);
   }
 
-  return { 
-    success: true, 
+  return {
+    success: true,
     message: `Password reset email sent to ${userData.user.email}`,
     data: { email: userData.user.email }
   };
 }
 
 async function handleBanUser(
-  supabase: any, 
-  userId: string, 
+  supabase: any,
+  userId: string,
   duration: string,
   reason?: string
 ): Promise<ActionResponse> {
@@ -168,7 +168,7 @@ async function handleBanUser(
 
   // Get current user data
   const { data: currentUserData, error: getUserError } = await supabase.auth.admin.getUserById(userId);
-  
+
   if (getUserError) {
     throw new Error(`Failed to get user: ${getUserError.message}`);
   }
@@ -202,23 +202,23 @@ async function handleBanUser(
     console.warn('⚠️ Could not create ban notification:', notifError);
   }
 
-  return { 
-    success: true, 
+  return {
+    success: true,
     message: `User banned until ${banUntil.toISOString()}`,
-    data: { 
+    data: {
       banned_until: banUntil.toISOString(),
       duration,
-      reason 
+      reason
     }
   };
 }
 
 async function handleUnbanUser(supabase: any, userId: string): Promise<ActionResponse> {
   console.log('✅ Unbanning user...');
-  
+
   // Get current user data
   const { data: bannedUserData, error: getUserError } = await supabase.auth.admin.getUserById(userId);
-  
+
   if (getUserError) {
     throw new Error(`Failed to get user: ${getUserError.message}`);
   }
@@ -251,16 +251,16 @@ async function handleUnbanUser(supabase: any, userId: string): Promise<ActionRes
     console.warn('⚠️ Could not create unban notification:', notifError);
   }
 
-  return { 
-    success: true, 
+  return {
+    success: true,
     message: 'User unbanned successfully',
-    data: unbanData 
+    data: unbanData
   };
 }
 
 async function handleChangeRole(
-  supabase: any, 
-  userId: string, 
+  supabase: any,
+  userId: string,
   newRole: string
 ): Promise<ActionResponse> {
   console.log(`🎭 Changing role to: ${newRole}`);
@@ -275,10 +275,10 @@ async function handleChangeRole(
   const oldRole = currentUserRoles?.role;
 
   if (oldRole === newRole) {
-    return { 
-      success: true, 
+    return {
+      success: true,
       message: 'User already has this role',
-      data: { role: newRole } 
+      data: { role: newRole }
     };
   }
 
@@ -287,9 +287,9 @@ async function handleChangeRole(
   // Update user_roles table
   const { error: roleError } = await supabase
     .from('user_roles')
-    .update({ 
-      role: newRole, 
-      updated_at: new Date().toISOString() 
+    .update({
+      role: newRole,
+      updated_at: new Date().toISOString()
     })
     .eq('user_id', userId);
 
@@ -344,8 +344,8 @@ async function handleChangeRole(
     console.warn('⚠️ Could not create role change notification:', notifError);
   }
 
-  return { 
-    success: true, 
+  return {
+    success: true,
     message: `Role changed from ${oldRole} to ${newRole}`,
     data: { oldRole, newRole, userName }
   };
@@ -362,17 +362,17 @@ async function handleDeleteUser(supabase: any, userId: string): Promise<ActionRe
     await supabase.from('candidates').delete().eq('user_id', userId);
     await supabase.from('recruiters').delete().eq('user_id', userId);
     await supabase.from('notifications').delete().eq('user_id', userId);
-    
+
     // Delete user from auth (this cascades to related tables)
     const { error: deleteError } = await supabase.auth.admin.deleteUser(userId);
-    
+
     if (deleteError) {
       throw new Error(`Failed to delete user: ${deleteError.message}`);
     }
 
-    return { 
-      success: true, 
-      message: 'User and all related data deleted successfully' 
+    return {
+      success: true,
+      message: 'User and all related data deleted successfully'
     };
   } catch (error: any) {
     throw new Error(`Delete operation failed: ${error.message}`);

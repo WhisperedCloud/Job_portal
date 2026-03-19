@@ -34,38 +34,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const DEPLOYED_URL = "https://job-portal-a8zj.vercel.app";
 
-  // --- BEGIN: Persist Auth session across tab switches using localStorage ---
-  // Save session to localStorage on change
-  useEffect(() => {
-    const saveSessionToStorage = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      try {
-        localStorage.setItem("supabase.auth.session", JSON.stringify(session));
-      } catch {}
-    };
-    saveSessionToStorage();
-  }, [user]);
-
-  // Restore session from localStorage on mount
-  useEffect(() => {
-    (async () => {
-      try {
-        const localSession = localStorage.getItem("supabase.auth.session");
-        if (localSession) {
-          const parsed = JSON.parse(localSession);
-          if (parsed && parsed.user) {
-            await fetchUserData(parsed.user.id, parsed.user.email || '');
-            setLoading(false);
-            setInitializing(false);
-            return;
-          }
-        }
-      } catch {}
-      // fallback to normal flow if not found
-    })();
-  }, []);
-  // --- END: Persist Auth session across tab switches using localStorage ---
-
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
@@ -246,7 +214,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           data: {
             role: role
           },
-          emailRedirectTo: `${DEPLOYED_URL}/login`
+          emailRedirectTo: window.location.origin
         }
       });
 

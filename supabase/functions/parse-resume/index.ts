@@ -1,3 +1,7 @@
+export const config = {
+  verify_jwt: false,
+};
+
 /// <reference lib="deno.ns" />
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
@@ -24,7 +28,7 @@ serve(async (req) => {
 
   if (req.method !== "POST") {
     return new Response(
-      JSON.stringify({ error: "Only POST requests are allowed" }), 
+      JSON.stringify({ error: "Only POST requests are allowed" }),
       { status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
@@ -34,16 +38,16 @@ serve(async (req) => {
     body = await req.json();
   } catch {
     return new Response(
-      JSON.stringify({ error: "Invalid JSON input" }), 
+      JSON.stringify({ error: "Invalid JSON input" }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 
   const { resumeBase64, mimeType, candidateId } = body;
-  
+
   if (!resumeBase64) {
     return new Response(
-      JSON.stringify({ error: "Missing resumeBase64" }), 
+      JSON.stringify({ error: "Missing resumeBase64" }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
@@ -79,9 +83,9 @@ Return ONLY a JSON object with this exact structure (no markdown, no explanation
 If any field is not found in the resume, use null for that field.`;
 
     console.log("Sending request to Gemini API...");
-    
+
     const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`;
-    
+
     const response = await fetch(GEMINI_API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -112,17 +116,17 @@ If any field is not found in the resume, use null for that field.`;
 
     const data = await response.json();
     console.log("Gemini response structure:", JSON.stringify(data, null, 2));
-    
+
     const candidate = data.candidates?.[0];
     const finishReason = candidate?.finishReason;
-    
+
     console.log(`Finish reason: ${finishReason}`);
-    
+
     if (finishReason === "MAX_TOKENS") {
       console.error("Gemini response exceeded MAX_TOKENS limit");
       throw new Error("Response too long. Try with a shorter resume.");
     }
-    
+
     const parsedText = candidate?.content?.parts?.[0]?.text;
 
     if (!parsedText) {
@@ -149,7 +153,7 @@ If any field is not found in the resume, use null for that field.`;
       const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_KEY!);
 
       const updateData: any = {};
-      
+
       if (parsedData.name) updateData.name = parsedData.name;
       if (parsedData.phone) updateData.phone = parsedData.phone;
       if (parsedData.location) updateData.location = parsedData.location;
@@ -160,7 +164,7 @@ If any field is not found in the resume, use null for that field.`;
           .select('skills')
           .eq('id', candidateId)
           .single();
-        
+
         const existingSkills = existingProfile?.skills || [];
         const mergedSkills = [...new Set([...existingSkills, ...parsedData.skills])];
         updateData.skills = mergedSkills;
@@ -184,14 +188,14 @@ If any field is not found in the resume, use null for that field.`;
     }
 
     return new Response(
-      JSON.stringify(parsedData), 
+      JSON.stringify(parsedData),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-    
+
   } catch (err: any) {
     console.error("Error during processing:", err);
     return new Response(
-      JSON.stringify({ error: "Processing failed", details: err.message }), 
+      JSON.stringify({ error: "Processing failed", details: err.message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

@@ -133,7 +133,10 @@ const RecruiterApplications = () => {
         .eq('job.recruiter_id', recruiterData.id)
         .order('applied_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Edge Function error:', error);
+        throw new Error(error.message || 'Edge Function failed');
+      }
 
       // Get analysis info for each application
       const appsWithAnalysis = await Promise.all(
@@ -212,7 +215,16 @@ const RecruiterApplications = () => {
     }
 
     try {
-      setAnalyzing(application.id);
+  setAnalyzing(application.id);
+
+
+  const { data: { session } } = await supabase.auth.getSession();
+
+  if (!session) {
+    toast.error('Session expired. Please login again.');
+    return;
+  }
+
       
       const resumeResponse = await fetch(application.candidate.resume_url);
       
@@ -244,6 +256,7 @@ const RecruiterApplications = () => {
           applicationId: application.id
         }
       });
+
 
       if (error) throw error;
 

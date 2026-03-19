@@ -4,10 +4,10 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const VITE_SUPABASE_URL = Deno.env.get("VITE_SUPABASE_URL");
+const SUPABASE_SERVICE_KEY = Deno.env.get("VITE_SUPABASE_SERVICE_ROLE_KEY");
 
-if (!GEMINI_API_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+if (!GEMINI_API_KEY || !VITE_SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.error("Required environment variables are not set");
 }
 
@@ -24,7 +24,7 @@ serve(async (req) => {
 
   if (req.method !== "POST") {
     return new Response(
-      JSON.stringify({ error: "Only POST requests are allowed" }), 
+      JSON.stringify({ error: "Only POST requests are allowed" }),
       { status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
@@ -34,16 +34,16 @@ serve(async (req) => {
     body = await req.json();
   } catch {
     return new Response(
-      JSON.stringify({ error: "Invalid JSON input" }), 
+      JSON.stringify({ error: "Invalid JSON input" }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 
   const { resumeBase64, mimeType, jobDescription, applicationId } = body;
-  
+
   if (!resumeBase64 || !jobDescription) {
     return new Response(
-      JSON.stringify({ error: "Missing resumeBase64 or jobDescription" }), 
+      JSON.stringify({ error: "Missing resumeBase64 or jobDescription" }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
@@ -74,9 +74,9 @@ Return ONLY a JSON object with this exact structure (no markdown, no explanation
 }`;
 
     console.log("Sending request to Gemini API...");
-    
+
     const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`;
-    
+
     const response = await fetch(GEMINI_API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -107,17 +107,17 @@ Return ONLY a JSON object with this exact structure (no markdown, no explanation
 
     const data = await response.json();
     console.log("Gemini response structure:", JSON.stringify(data, null, 2));
-    
+
     const candidate = data.candidates?.[0];
     const finishReason = candidate?.finishReason;
-    
+
     console.log(`Finish reason: ${finishReason}`);
-    
+
     if (finishReason === "MAX_TOKENS") {
       console.error("Gemini response exceeded MAX_TOKENS limit");
       throw new Error("Response too long. Try with a shorter resume or job description.");
     }
-    
+
     const analysisText = candidate?.content?.parts?.[0]?.text;
 
     if (!analysisText) {
@@ -140,7 +140,7 @@ Return ONLY a JSON object with this exact structure (no markdown, no explanation
     }
 
     // Create Supabase client
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+    const supabase = createClient(VITE_SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
     // Store the result in Supabase
     const insertData: any = {
@@ -169,16 +169,16 @@ Return ONLY a JSON object with this exact structure (no markdown, no explanation
     }
 
     console.log("Analysis completed successfully!");
-    
+
     return new Response(
-      JSON.stringify(supabaseData), 
+      JSON.stringify(supabaseData),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-    
+
   } catch (err: any) {
     console.error("Error during processing:", err);
     return new Response(
-      JSON.stringify({ error: "Processing failed", details: err.message }), 
+      JSON.stringify({ error: "Processing failed", details: err.message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
