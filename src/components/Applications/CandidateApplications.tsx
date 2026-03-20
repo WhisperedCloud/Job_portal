@@ -89,15 +89,20 @@ const CandidateApplications = () => {
         .from('candidates')
         .select('id')
         .eq('user_id', user?.id)
-        .single();
+        .maybeSingle();
 
-      if (candidateError) throw candidateError;
+      // If no candidate profile (e.g. recruiter user), silently show empty list
+      if (candidateError || !candidateData) {
+        setApplications([]);
+        setLoading(false);
+        return;
+      }
 
       const { data, error } = await supabase
         .from('applications')
         .select(`
           *,
-          job:jobs(title, location, company_name)
+          job:applications_job_id_fkey(title, location, company_name)
         `)
         .eq('candidate_id', candidateData.id)
         .order('applied_at', { ascending: false });

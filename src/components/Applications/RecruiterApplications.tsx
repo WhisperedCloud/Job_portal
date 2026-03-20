@@ -110,16 +110,17 @@ const RecruiterApplications = () => {
         .from('applications')
         .select(`
           *,
-          job:jobs!inner (
+          job:applications_job_id_fkey!inner (
             id,
             title,
             job_description,
             company_name,
             recruiter_id
           ),
-          candidate:candidates (
+          candidate:applications_candidate_id_fkey (
             id,
             name,
+            email,
             phone,
             location,
             skills,
@@ -141,13 +142,17 @@ const RecruiterApplications = () => {
       // Get analysis info for each application
       const appsWithAnalysis = await Promise.all(
         (data || []).map(async (app) => {
-          const { data: analysisData } = await supabase
+          const { data: analysisData, error: analysisError } = await supabase
             .from('analysis_results')
             .select('*')
             .eq('application_id', app.id)
             .order('created_at', { ascending: false })
             .limit(1)
-            .single();
+            .maybeSingle();
+          
+          if (analysisError) {
+            console.warn('Analysis fetch warning:', analysisError);
+          }
 
           return {
             ...app,
@@ -260,8 +265,19 @@ const RecruiterApplications = () => {
 
       if (error) throw error;
 
+      // `data` is the saved analysis_results row from the edge function
+      // Directly update local state so score shows immediately (avoids RLS re-fetch issues)
+      if (data) {
+        setApplications(prev =>
+          prev.map(app =>
+            app.id === application.id
+              ? { ...app, analysis: data }
+              : app
+          )
+        );
+      }
+
       toast.success('Resume analyzed successfully!');
-      await fetchApplications();
       
     } catch (error: any) {
       console.error('Error in analyzeResume:', error);

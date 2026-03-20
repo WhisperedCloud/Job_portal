@@ -222,26 +222,14 @@ const JobListing = () => {
         throw new Error("No auth session found");
       }
 
-      const response = await fetch(
-        'https://yzppfbsoarvaodfncpjh.functions.supabase.co/job-match-score',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({ candidateId: user.candidate_id, jobId })
-        }
-      );
+      const { data, error: functionError } = await supabase.functions.invoke('job-match-score', {
+        body: { candidateId: user.candidate_id, jobId }
+      });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API Error Response:', errorText);
-        throw new Error(`Failed to fetch job match score: ${errorText}`);
+      if (functionError) {
+        console.error('API Error Response:', functionError);
+        throw new Error(`Failed to fetch job match score: ${functionError.message || functionError}`);
       }
-
-      const data = await response.json();
       const newScores = {
         ...jobScores,
         [data.jobId]: typeof data.score === 'number' ? data.score : 0

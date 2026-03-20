@@ -44,12 +44,12 @@ const CandidateDashboard = () => {
     };
   }, [notifOpen]);
 
-  const fetchUserRoleId = async (email) => {
+  const fetchUserRoleId = async () => {
     const { data, error } = await supabase
       .from('user_roles')
       .select('id')
-      .eq('email', email)
-      .single();
+      .eq('user_id', user?.id)
+      .maybeSingle();
     if (error || !data) return null;
     return data.id;
   };
@@ -66,7 +66,7 @@ const CandidateDashboard = () => {
 
       if (candidateError || !candidateData) return;
 
-      const userRoleId = await fetchUserRoleId(user.email);
+      const userRoleId = await fetchUserRoleId();
 
       let jobAlertsCount = 0;
       if (candidateData.skills && candidateData.skills.length > 0) {
@@ -99,9 +99,9 @@ const CandidateDashboard = () => {
           id,
           status,
           applied_at,
-          jobs (
+          job:applications_job_id_fkey (
             title,
-            recruiters (
+            recruiter:jobs_recruiter_id_fkey (
               company_name
             )
           )
@@ -112,8 +112,8 @@ const CandidateDashboard = () => {
 
       const formattedApps = (recentApps || []).map((app) => ({
         id: app.id,
-        jobTitle: app.jobs?.title || 'N/A',
-        company: app.jobs?.recruiters?.company_name || 'N/A',
+        jobTitle: (app.job as any)?.title || 'N/A',
+        company: (app.job as any)?.recruiter?.company_name || 'N/A',
         status: app.status,
         appliedAt: new Date(app.applied_at).toLocaleDateString(),
       }));
@@ -175,7 +175,7 @@ const CandidateDashboard = () => {
 
   // Only update local notification state and stats, no dashboard refresh!
   const markNotificationAsRead = async (id) => {
-    const userRoleId = await fetchUserRoleId(user.email);
+    const userRoleId = await fetchUserRoleId();
     await supabase
       .from('notifications')
       .update({ is_read: true })
@@ -197,7 +197,7 @@ const CandidateDashboard = () => {
     if (!user) return;
     let subscription;
     const subscribeToNotifications = async () => {
-      const userRoleId = await fetchUserRoleId(user.email);
+      const userRoleId = await fetchUserRoleId();
       subscription = supabase
         .channel('notifications')
         .on(

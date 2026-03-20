@@ -53,7 +53,7 @@ const AllApplications = () => {
       const [appsResult, jobsResult, candidatesResult, recruitersResult] = await Promise.all([
         supabase.from('applications').select('*').order('applied_at', { ascending: false }),
         supabase.from('jobs').select('id, title, recruiter_id'),
-        supabase.from('candidates').select('id, name, phone, location, skills, resume_url, user_id'),
+        supabase.from('candidates').select('id, name, email, phone, location, skills, resume_url, user_id'),
         supabase.from('recruiters').select('id, company_name')
       ]);
 
@@ -69,35 +69,18 @@ const AllApplications = () => {
       const recruitersMap = new Map();
       (recruitersResult.data || []).forEach(r => recruitersMap.set(r.id, r));
 
-      // Get user emails from auth
-      const usersMap = new Map();
-      
-      for (const candidate of (candidatesResult.data || [])) {
-        if (candidate.user_id) {
-          try {
-            const { data: userData } = await supabase.auth.admin.getUserById(candidate.user_id);
-            if (userData?.user?.email) {
-              usersMap.set(candidate.user_id, userData.user.email);
-            }
-          } catch (error) {
-            console.error('Error fetching user email:', error);
-          }
-        }
-      }
-
       // Build applications array
       const formattedApplications: Application[] = (appsResult.data || []).map((app: any) => {
         const candidate = candidatesMap.get(app.candidate_id);
         const job = jobsMap.get(app.job_id);
         const recruiter = job ? recruitersMap.get(job.recruiter_id) : null;
-        const userEmail = candidate ? usersMap.get(candidate.user_id) : null;
 
         return {
           id: app.id,
           candidate_id: app.candidate_id,
           job_id: app.job_id,
           candidateName: candidate?.name || 'Unknown',
-          candidateEmail: userEmail || 'No email',
+          candidateEmail: candidate?.email || 'No email',
           candidatePhone: candidate?.phone || '',
           jobTitle: job?.title || 'Unknown Position',
           company: recruiter?.company_name || 'Unknown Company',

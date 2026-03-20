@@ -67,7 +67,7 @@ serve(async (req) => {
   }
 
   try {
-    const supabase = createClient(VITE_SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+    const supabase = createClient(VITE_SUPABASE_URL!, SUPABASE_SERVICE_KEY!, {
       global: {
         headers: {
           Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,

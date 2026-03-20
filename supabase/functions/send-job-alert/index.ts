@@ -54,8 +54,8 @@ serve(withCors(async (req) => {
     }
 
     return new Response("Email sent", { status: 200 });
-  } catch (err) {
-    console.error("Function error:", err);
+  } catch (err: any) {
+    console.error("❌ Edge Function error:", err);
     return new Response("Server error: " + err.message, { status: 500 });
   }
 }));

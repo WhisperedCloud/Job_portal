@@ -36,7 +36,7 @@ export const useCandidate = () => {
         .from('candidates')
         .select('*')
         .eq('user_id', user?.id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         console.error('Error fetching profile:', error);
@@ -246,10 +246,10 @@ export const useCandidate = () => {
           id, 
           status, 
           applied_at,
-          job:jobs (
+          job:applications_job_id_fkey (
             id,
             title,
-            recruiter:recruiters (
+            recruiter:jobs_recruiter_id_fkey (
               company_name
             )
           )

@@ -68,7 +68,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
 
         if (session?.user) {
-          await fetchUserData(session.user.id, session.user.email || '');
+          await fetchUserData(session.user.id, session.user.email || '', session.user.user_metadata);
         } else {
           setUser(null);
           const publicRoutes = ['/login', '/register', '/'];
@@ -93,7 +93,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session?.user) {
-        await fetchUserData(session.user.id, session.user.email || '');
+        await fetchUserData(session.user.id, session.user.email || '', session.user.user_metadata);
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
         toast({
@@ -101,13 +101,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           description: "You have been logged out.",
         });
         navigate('/login', { replace: true });
-      } else if (event === 'TOKEN_REFRESHED') {
+      } else if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
         if (session?.user) {
-          await fetchUserData(session.user.id, session.user.email || '');
-        }
-      } else if (event === 'USER_UPDATED') {
-        if (session?.user) {
-          await fetchUserData(session.user.id, session.user.email || '');
+          await fetchUserData(session.user.id, session.user.email || '', session.user.user_metadata);
         }
       }
     });
@@ -117,37 +113,44 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, []);
 
-  const fetchUserData = async (userId: string, email: string) => {
+  const fetchUserData = async (userId: string, email: string, userMetadata?: any) => {
     try {
+      // 1. Start with role from metadata as a reliable fallback
+      let role = (userMetadata?.role || 'candidate') as UserRole;
+
+      // 2. Try to get latest role from user_roles table
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Request timeout')), 2000)
+        setTimeout(() => reject(new Error('Request timeout')), 3000)
       );
 
-      // 1. Get role from user_roles
       const fetchRolePromise = supabase
         .from('user_roles')
         .select('role')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
-      const { data: roleData, error: roleError } = await Promise.race([
-        fetchRolePromise,
-        timeoutPromise
-      ]) as any;
+      try {
+        const { data: roleData, error: roleError } = await Promise.race([
+          fetchRolePromise,
+          timeoutPromise
+        ]) as any;
 
-      let role = 'candidate' as UserRole;
-      if (roleData && roleData.role) {
-        role = roleData.role as UserRole;
+        if (roleData && roleData.role) {
+          role = roleData.role as UserRole;
+        }
+      } catch (err) {
+        console.warn('Error or timeout fetching role from table, using metadata fallback:', err);
+        // Fallback role is already set from userMetadata above
       }
 
-      // 2. Get candidate_id from candidates table (if candidate)
+      // 3. Get candidate_id from candidates table (if candidate)
       let candidate_id: string | undefined;
       if (role === 'candidate') {
-        const { data: candidateRecord, error: candidateError } = await supabase
+        const { data: candidateRecord } = await supabase
           .from('candidates')
           .select('id')
           .eq('user_id', userId)
-          .single();
+          .maybeSingle();
         candidate_id = candidateRecord?.id;
       }
 
@@ -160,10 +163,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       });
 
     } catch (error: any) {
+      console.error('Fatal error in fetchUserData:', error);
+      // Even on fatal error, try to use metadata to keep the session alive with the right role
+      const fallbackRole = (userMetadata?.role || 'candidate') as UserRole;
       setUser({
         id: userId,
         email: email,
-        role: 'candidate' as UserRole,
+        role: fallbackRole,
         candidate_id: undefined,
         created_at: new Date().toISOString()
       });
@@ -246,23 +252,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const logout = async () => {
     try {
       setLoading(true);
+      // Attempt sign out; ignore AuthSessionMissingError (session already gone)
       const { error } = await supabase.auth.signOut();
-
-      if (error) {
-        console.error('❌ Logout error:', error);
+      if (error && error.message !== 'Auth session missing!') {
+        console.error('Logout error:', error);
       }
-
+    } catch (_) {
+      // Swallow all errors — we still want to clear state and redirect
+    } finally {
       setUser(null);
+      setLoading(false);
       toast({
         title: "Logged out",
         description: "You have been successfully logged out.",
       });
-      navigate('/login', { replace: true });
-      setLoading(false);
-
-    } catch (error) {
-      setLoading(false);
-      setUser(null);
       navigate('/login', { replace: true });
     }
   };

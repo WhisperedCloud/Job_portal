@@ -1,5 +1,4 @@
-
--- Create a trigger function to handle new user registration
+-- Update the handle_new_user function to include email in candidates table
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -21,15 +20,20 @@ BEGIN
 
     -- Insert user role
     INSERT INTO public.user_roles (user_id, role)
-    VALUES (NEW.id, user_role);
+    VALUES (NEW.id, user_role)
+    ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role;
 
     -- Create appropriate profile based on role
     IF user_role = 'candidate' THEN
-      INSERT INTO public.candidates (user_id, name, skills)
-      VALUES (NEW.id, extracted_name, '{}');
+      INSERT INTO public.candidates (user_id, name, email, skills)
+      VALUES (NEW.id, extracted_name, NEW.email, '{}')
+      ON CONFLICT (user_id) DO UPDATE SET 
+        email = EXCLUDED.email,
+        name = COALESCE(public.candidates.name, EXCLUDED.name);
     ELSIF user_role = 'recruiter' THEN
       INSERT INTO public.recruiters (user_id, name, company_name)
-      VALUES (NEW.id, extracted_name, 'New Company');
+      VALUES (NEW.id, extracted_name, 'New Company')
+      ON CONFLICT (user_id) DO NOTHING;
     END IF;
     
   EXCEPTION WHEN OTHERS THEN
@@ -41,8 +45,12 @@ BEGIN
 END;
 $$;
 
--- Create trigger on auth.users table
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+-- Update existing candidates with their email from auth.users
+UPDATE public.candidates c
+SET email = u.email
+FROM auth.users u
+WHERE c.user_id = u.id
+AND (c.email IS NULL OR c.email = '');
+
+-- Notify PostgREST to quickly reload the schema cache
+NOTIFY pgrst, 'reload schema';

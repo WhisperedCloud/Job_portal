@@ -23,9 +23,9 @@ export const useJobApplication = () => {
     let resumeUrl = '';
 
     try {
-      // Step 1: Upload resume to applications bucket
+      // Step 1: Upload resume to Resumes bucket
       setUploadProgress('Uploading resume...');
-      resumeUrl = await uploadFile(resumeFile, 'applications', 'resumes/');
+      resumeUrl = await uploadFile(resumeFile, 'Resumes', 'applications/');
 
       // Step 2: Create application record
       setUploadProgress('Submitting application...');

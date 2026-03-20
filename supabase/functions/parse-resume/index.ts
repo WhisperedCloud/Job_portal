@@ -84,7 +84,7 @@ If any field is not found in the resume, use null for that field.`;
 
     console.log("Sending request to Gemini API...");
 
-    const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`;
+    const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
     const response = await fetch(GEMINI_API_URL, {
       method: "POST",
@@ -103,7 +103,7 @@ If any field is not found in the resume, use null for that field.`;
         }],
         generationConfig: {
           temperature: 0.1,
-          maxOutputTokens: 2048,
+          maxOutputTokens: 8192,
         },
       }),
     });
@@ -193,9 +193,9 @@ If any field is not found in the resume, use null for that field.`;
     );
 
   } catch (err: any) {
-    console.error("Error during processing:", err);
+    console.error("Error during processing:", err.message);
     return new Response(
-      JSON.stringify({ error: "Processing failed", details: err.message }),
+      JSON.stringify({ error: "Processing failed", details: String(err) }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
