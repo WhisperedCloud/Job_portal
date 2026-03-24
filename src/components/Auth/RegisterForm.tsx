@@ -244,7 +244,7 @@ const RegisterForm = () => {
             {role === 'admin' && (
               <div className="mt-4 p-3 bg-gray-100 rounded-md">
                 <p className="text-xs text-gray-600">
-                  <strong>Demo Admin Code:</strong> JOBPORTAL_ADMIN_2025
+                  <strong>Demo Admin Code:</strong> JOBPORTAL_ADMIN_2026
                 </p>
                 <p className="text-xs text-gray-500 mt-1">
                   (In production, remove this hint and use environment variables)
