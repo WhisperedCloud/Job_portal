@@ -118,40 +118,49 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       // 1. Start with role from metadata as a reliable fallback
       let role = (userMetadata?.role || 'candidate') as UserRole;
 
-      // 2. Try to get latest role from user_roles table
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Request timeout')), 3000)
+      // 2. Try to get latest role from user_roles table with a generous timeout
+      const timeoutPromise = (ms: number) => new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Request timeout')), ms)
       );
 
-      const fetchRolePromise = supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', userId)
-        .maybeSingle();
-
       try {
-        const { data: roleData, error: roleError } = await Promise.race([
+        const fetchRolePromise = supabase
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        const { data: roleData } = await Promise.race([
           fetchRolePromise,
-          timeoutPromise
+          timeoutPromise(8000) // 8 second timeout for role check
         ]) as any;
 
         if (roleData && roleData.role) {
           role = roleData.role as UserRole;
         }
       } catch (err) {
-        console.warn('Error or timeout fetching role from table, using metadata fallback:', err);
-        // Fallback role is already set from userMetadata above
+        console.warn('Timeout or error fetching role, using fallback:', err);
       }
 
-      // 3. Get candidate_id from candidates table (if candidate)
+      // 3. Get candidate_id from candidates table (if candidate) with timeout protection
       let candidate_id: string | undefined;
       if (role === 'candidate') {
-        const { data: candidateRecord } = await supabase
-          .from('candidates')
-          .select('id')
-          .eq('user_id', userId)
-          .maybeSingle();
-        candidate_id = candidateRecord?.id;
+        try {
+          const fetchCandidatePromise = supabase
+            .from('candidates')
+            .select('id')
+            .eq('user_id', userId)
+            .maybeSingle();
+
+          const { data: candidateRecord } = await Promise.race([
+            fetchCandidatePromise,
+            timeoutPromise(5000) // 5 second timeout for candidate profile check
+          ]) as any;
+          
+          candidate_id = candidateRecord?.id;
+        } catch (err) {
+          console.warn('Timeout or error fetching candidate profile:', err);
+        }
       }
 
       setUser({
@@ -196,7 +205,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
 
       if (data.user) {
-        await fetchUserData(data.user.id, data.user.email || '');
+        await fetchUserData(data.user.id, data.user.email || '', data.user.user_metadata);
         toast({
           title: "Login Successful",
           description: "Welcome back!",

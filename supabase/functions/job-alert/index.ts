@@ -5,7 +5,7 @@ const supabaseUrl = Deno.env.get('VITE_SUPABASE_URL')!
 const supabaseKey = Deno.env.get('VITE_SUPABASE_SERVICE_ROLE_KEY')!
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-const SEND_JOB_ALERT_URL = "https://yzppfbsoarvaodfncpjh.supabase.co/functions/v1/send-job-alert"
+const SEND_JOB_ALERT_URL = "https://epspgkanbtjrneoqyttp.supabase.co/functions/v1/send-job-alert"
 
 serve(async (req) => {
   try {

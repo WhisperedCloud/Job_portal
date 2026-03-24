@@ -73,10 +73,10 @@ const CreateJob = () => {
       formData.job_description,
       formData.contact_email,
     ];
-    
+
     const filledFields = requiredFields.filter(field => field.trim() !== '').length;
     const totalFields = requiredFields.length;
-    
+
     return Math.round((filledFields / totalFields) * 100);
   };
 
@@ -115,7 +115,7 @@ const CreateJob = () => {
         });
 
         // Trigger Supabase Edge Function for email alerts (non-blocking for redirect)
-        fetch('https://yzppfbsoarvaodfncpjh.supabase.co/functions/v1/job-alert', {
+        fetch('https://epspgkanbtjrneoqyttp.supabase.co/functions/v1/job-alert', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ record: { ...createdJob, skills_required: skills } }),
@@ -163,7 +163,7 @@ const CreateJob = () => {
               <div className="text-right">
                 <h2 className="text-xl font-semibold">Preview Job Post</h2>
                 <p className="text-sm text-muted-foreground">Preview your post before you publish.</p>
-                <Button 
+                <Button
                   className="mt-2 bg-gray-600 hover:bg-gray-700"
                   onClick={() => setShowPreview(true)}
                   disabled={progress < 100}
@@ -186,16 +186,15 @@ const CreateJob = () => {
                     <span className="text-2xl font-bold text-blue-600">{progress}%</span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-3">
-                    <div 
-                      className={`h-3 rounded-full transition-all duration-300 ${
-                        progress === 100 ? 'bg-green-600' : 'bg-blue-600'
-                      }`}
+                    <div
+                      className={`h-3 rounded-full transition-all duration-300 ${progress === 100 ? 'bg-green-600' : 'bg-blue-600'
+                        }`}
                       style={{ width: `${progress}%` }}
                     />
                   </div>
                   <p className="text-sm text-gray-600">
-                    {progress === 100 
-                      ? '✅ All required fields completed! You can now preview and post your job.' 
+                    {progress === 100
+                      ? '✅ All required fields completed! You can now preview and post your job.'
                       : `${8 - Math.round((progress / 100) * 8)} required fields remaining`}
                   </p>
                 </div>
@@ -413,7 +412,7 @@ const CreateJob = () => {
               This is how your job posting will appear to candidates
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-6">
             {/* Job Header */}
             <div className="border-b pb-4">

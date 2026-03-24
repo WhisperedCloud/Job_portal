@@ -156,14 +156,25 @@ const JobListing = () => {
 
   useEffect(() => {
     fetchJobs();
-    loadScoresFromLocalStorage();
   }, []);
 
+  useEffect(() => {
+    if (user?.id) {
+      loadScoresFromLocalStorage();
+    } else {
+      setJobScores({});
+    }
+  }, [user?.id]);
+
   const loadScoresFromLocalStorage = () => {
+    if (!user?.id) return;
     try {
-      const storedScores = localStorage.getItem('jobMatchScores');
+      const storageKey = `jobMatchScores_${user.id}`;
+      const storedScores = localStorage.getItem(storageKey);
       if (storedScores) {
         setJobScores(JSON.parse(storedScores));
+      } else {
+        setJobScores({});
       }
     } catch (error) {
       console.error('Failed to load scores from local storage:', error);
@@ -171,8 +182,10 @@ const JobListing = () => {
   };
 
   const saveScoresToLocalStorage = (newScores) => {
+    if (!user?.id) return;
     try {
-      localStorage.setItem('jobMatchScores', JSON.stringify(newScores));
+      const storageKey = `jobMatchScores_${user.id}`;
+      localStorage.setItem(storageKey, JSON.stringify(newScores));
     } catch (error) {
       console.error('Failed to save scores to local storage:', error);
     }
