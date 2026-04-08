@@ -275,11 +275,21 @@ export const useCandidate = () => {
           throw new Error("Authorization Error: Please ensure your account is logged in correctly.");
         }
 
-        throw new Error(functionError.message || "Resume parsing failed");
+        // Handle other specific errors
+        if (functionError.message?.includes('Unsupported file type')) {
+          throw new Error("Unsupported file type. Please upload a PDF.");
+        }
+
+        if (functionError.message?.includes('File too large')) {
+          throw new Error("File too large. Please use a resume under 2MB.");
+        }
+
+        throw new Error(functionError.message || "Resume parsing failed - check the console for details");
       }
-      // ✅ CHECK DATA
+
+      // ✅ CHECK DATA AFTER ERROR CHECK
       if (!parsedData) {
-        throw new Error("AI parsing returned no data");
+        throw new Error("AI parsing returned no data. Your file may not contain readable resume information.");
       }
 
       console.log("✅ Resume parsed successfully:", parsedData);
@@ -347,8 +357,9 @@ export const useCandidate = () => {
         license_number: parsedData.license_number,
       };
 
-    } catch (error) {
-      toast.error('Failed to process resume for autofill.');
+    } catch (error: any) {
+      console.error('Resume processing error:', error);
+      toast.error(`Failed to process resume: ${error.message}`);
       throw error;
     }
   };
