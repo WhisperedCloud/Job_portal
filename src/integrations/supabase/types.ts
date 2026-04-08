@@ -81,6 +81,14 @@ export type Database = {
           updated_at: string | null
           user_id: string
           email?: string
+          linkedin_url?: string | null
+          seniority_level?: string | null
+          domain_expertise?: string[] | null
+          career_trajectory?: string | null
+          vector_id?: string | null
+          resume_text: string | null
+          linkedin_summary: string | null
+          projects: string | null
         }
         Insert: {
           created_at?: string | null
@@ -97,6 +105,14 @@ export type Database = {
           updated_at?: string | null
           user_id: string
           email?: string
+          linkedin_url?: string | null
+          seniority_level?: string | null
+          domain_expertise?: string[] | null
+          career_trajectory?: string | null
+          vector_id?: string | null
+          resume_text?: string | null
+          linkedin_summary?: string | null
+          projects?: string | null
         }
         Update: {
           created_at?: string | null
@@ -113,6 +129,14 @@ export type Database = {
           updated_at?: string | null
           user_id?: string
           email?: string
+          linkedin_url?: string | null
+          seniority_level?: string | null
+          domain_expertise?: string[] | null
+          career_trajectory?: string | null
+          vector_id?: string | null
+          resume_text?: string | null
+          linkedin_summary?: string | null
+          projects?: string | null
         }
         Relationships: []
       }
@@ -134,6 +158,7 @@ export type Database = {
           job_type: string | null
           salary_range: string | null
           contact_email: string | null
+          job_vector_id: string | null
         }
         Insert: {
           created_at?: string | null
@@ -152,6 +177,7 @@ export type Database = {
           job_type?: string | null
           salary_range?: string | null
           contact_email?: string | null
+          job_vector_id?: string | null
         }
         Update: {
           created_at?: string | null
@@ -170,6 +196,7 @@ export type Database = {
           job_type?: string | null
           salary_range?: string | null
           contact_email?: string | null
+          job_vector_id?: string | null
         }
         Relationships: [
           {
@@ -280,6 +307,9 @@ export type Database = {
           missing_skills: string[] | null
           summary: string | null
           created_at: string | null
+          strengths: string[] | null
+          gaps: string[] | null
+          breakdown: Json | null
         }
         Insert: {
           id?: string
@@ -289,6 +319,9 @@ export type Database = {
           missing_skills?: string[] | null
           summary?: string | null
           created_at?: string | null
+          strengths?: string[] | null
+          gaps?: string[] | null
+          breakdown?: Json | null
         }
         Update: {
           id?: string
@@ -298,6 +331,9 @@ export type Database = {
           missing_skills?: string[] | null
           summary?: string | null
           created_at?: string | null
+          strengths?: string[] | null
+          gaps?: string[] | null
+          breakdown?: Json | null
         }
         Relationships: [
           {
@@ -414,6 +450,86 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "user_roles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      ranker_signals: {
+        Row: {
+          id: string
+          candidate_id: string | null
+          job_id: string | null
+          action_type: string | null
+          score_boost: number | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          candidate_id?: string | null
+          job_id?: string | null
+          action_type?: string | null
+          score_boost?: number | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          candidate_id?: string | null
+          job_id?: string | null
+          action_type?: string | null
+          score_boost?: number | null
+          created_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ranker_signals_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ranker_signals_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      matching_config: {
+        Row: {
+          id: string
+          recruiter_id: string | null
+          semantic_weight: number | null
+          skills_weight: number | null
+          experience_weight: number | null
+          feedback_weight: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          recruiter_id?: string | null
+          semantic_weight?: number | null
+          skills_weight?: number | null
+          experience_weight?: number | null
+          feedback_weight?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          recruiter_id?: string | null
+          semantic_weight?: number | null
+          skills_weight?: number | null
+          experience_weight?: number | null
+          feedback_weight?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "matching_config_recruiter_id_fkey"
+            columns: ["recruiter_id"]
+            isOneToOne: false
+            referencedRelation: "recruiters"
             referencedColumns: ["id"]
           }
         ]

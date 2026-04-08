@@ -57,6 +57,9 @@ interface Application {
     key_skills_matched: string[];
     missing_skills: string[];
     summary: string;
+    strengths?: string[];
+    gaps?: string[];
+    breakdown?: any;
     created_at: string;
   };
 }
@@ -253,7 +256,13 @@ const RecruiterApplications = () => {
         throw new Error('Could not extract text from resume.');
       }
 
-      const { data, error } = await supabase.functions.invoke('analyze-resume', {
+      const functionName = 'analyze-resume';
+      console.log(`🧠 [AI] Invoking ${functionName}...`);
+
+      const { data, error } = await supabase.functions.invoke(functionName, {
+        headers: {
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        },
         body: {
           resumeBase64: base64Resume,
           mimeType: blob.type,
@@ -311,10 +320,19 @@ const RecruiterApplications = () => {
       try {
         await analyzeResume(app);
         successCount++;
-      } catch (error) {
+      } catch (error: any) {
         failCount++;
+        // If it's explicitly a rate limit, pause the whole queue
+        if (error?.message?.includes('429') || error?.message?.toLowerCase().includes('quota') || error?.message?.includes('status code 500')) {
+          toast.error("Google AI Free Tier Rate Limit reached. Taking a short break...");
+          break;
+        }
       }
       
+      // Delay to respect Google AI Free Tier limits (~15 requests per minute limit for free tier)
+      if (i < applicationsToAnalyze.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 4000));
+      }
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
@@ -402,34 +420,20 @@ const RecruiterApplications = () => {
       if (updateError) throw updateError;
 
       // Send notification to candidate
-      const { data: { session } } = await supabase.auth.getSession();
-      
       try {
-        const response = await fetch(
-          `${supabase}/functions/v1/send-interview-notification`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${session?.access_token}`,
-            },
-            body: JSON.stringify({
-              candidateId: selectedApplication.candidate_id,
-              applicationId: selectedApplication.id,
-              interviewDate: interviewData.interview_date,
-              interviewTime: interviewData.interview_time,
-              interviewVenue: interviewData.interview_venue,
-              interviewMode: interviewData.interview_mode,
-              interviewLink: interviewData.interview_link,
-              isReschedule,
-              rescheduleReason: interviewData.reschedule_reason
-            }),
-          }
-        );
-
-        if (!response.ok) {
-          console.error('Failed to send notification');
-        }
+        await supabase.functions.invoke('send-interview-notification', {
+          body: {
+            candidateId: selectedApplication.candidate_id,
+            applicationId: selectedApplication.id,
+            interviewDate: interviewData.interview_date,
+            interviewTime: interviewData.interview_time,
+            interviewVenue: interviewData.interview_venue,
+            interviewMode: interviewData.interview_mode,
+            interviewLink: interviewData.interview_link,
+            isReschedule,
+            rescheduleReason: interviewData.reschedule_reason
+          },
+        });
       } catch (notifError) {
         console.error('Notification error:', notifError);
       }
@@ -894,31 +898,47 @@ const RecruiterApplications = () => {
                           {application.analysis.summary}
                         </p>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
                             <div className="flex items-center gap-2 mb-2">
                               <CheckCircle className="h-4 w-4 text-green-600" />
-                              <span className="text-sm font-medium">Matched Skills</span>
+                              <span className="text-sm font-medium text-green-800">Key Strengths</span>
                             </div>
                             <div className="flex flex-wrap gap-1">
-                              {application.analysis.key_skills_matched.map((skill, idx) => (
-                                <Badge key={idx} variant="secondary" className="text-xs">
-                                  {skill}
-                                </Badge>
-                              ))}
+                              {(application.analysis.strengths || []).length > 0 ? (
+                                application.analysis.strengths!.map((s, idx) => (
+                                  <Badge key={idx} variant="secondary" className="bg-green-100 text-green-800 hover:bg-green-100 border-green-200">
+                                    {s}
+                                  </Badge>
+                                ))
+                              ) : (
+                                application.analysis.key_skills_matched.slice(0, 3).map((s, idx) => (
+                                  <Badge key={idx} variant="secondary" className="bg-blue-100 text-blue-800">
+                                    {s}
+                                  </Badge>
+                                ))
+                              )}
                             </div>
                           </div>
                           <div>
                             <div className="flex items-center gap-2 mb-2">
                               <XCircle className="h-4 w-4 text-red-600" />
-                              <span className="text-sm font-medium">Missing Skills</span>
+                              <span className="text-sm font-medium text-red-800">Gaps/Growth Areas</span>
                             </div>
                             <div className="flex flex-wrap gap-1">
-                              {application.analysis.missing_skills.map((skill, idx) => (
-                                <Badge key={idx} variant="outline" className="text-xs">
-                                  {skill}
-                                </Badge>
-                              ))}
+                              {(application.analysis.gaps || []).length > 0 ? (
+                                application.analysis.gaps!.map((g, idx) => (
+                                  <Badge key={idx} variant="outline" className="border-red-200 text-red-700 bg-red-50">
+                                    {g}
+                                  </Badge>
+                                ))
+                              ) : (
+                                application.analysis.missing_skills.slice(0, 3).map((s, idx) => (
+                                  <Badge key={idx} variant="outline" className="border-red-100 text-red-600">
+                                    {s}
+                                  </Badge>
+                                ))
+                              )}
                             </div>
                           </div>
                         </div>

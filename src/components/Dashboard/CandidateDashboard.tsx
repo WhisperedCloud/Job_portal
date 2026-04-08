@@ -17,34 +17,31 @@ const CandidateDashboard = () => {
     jobAlerts: 0,
     notifications: 0,
   });
-  const [recentApplications, setRecentApplications] = useState([]);
-  const [notifications, setNotifications] = useState([]);
+  const [recentApplications, setRecentApplications] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Notification popover state
   const [notifOpen, setNotifOpen] = useState(false);
-  const notifRef = useRef(null);
+  const notifRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (user) fetchDashboardData();
+    // eslint-disable-next-line
   }, [user]);
 
-  // Close popover when clicking outside
+  // Close notification popover on outside click
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (notifRef.current && !notifRef.current.contains(event.target)) {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
         setNotifOpen(false);
       }
     };
-    if (notifOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
+    if (notifOpen) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [notifOpen]);
 
-  const fetchUserRoleId = async () => {
+  // ── Fetch user_roles id (used for notifications) ─────────────────────────
+  const fetchUserRoleId = async (): Promise<string | null> => {
     const { data, error } = await supabase
       .from('user_roles')
       .select('id')
@@ -54,176 +51,200 @@ const CandidateDashboard = () => {
     return data.id;
   };
 
+  // ── Main dashboard data fetch ─────────────────────────────────────────────
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
+      if (!user?.id) return;
 
-      const { data: candidateData, error: candidateError } = await supabase
-        .from('candidates')
-        .select('id, skills')
-        .eq('user_id', user?.id)
-        .single();
+      // Parallel: candidate row + user role id
+      const [candidateRes, userRoleRes] = await Promise.all([
+        supabase.from('candidates').select('id, skills').eq('user_id', user.id).maybeSingle(),
+        supabase.from('user_roles').select('id').eq('user_id', user.id).maybeSingle(),
+      ]);
 
-      if (candidateError || !candidateData) return;
+      const candidateData = candidateRes.data;
+      const userRoleId    = userRoleRes.data?.id;
 
-      const userRoleId = await fetchUserRoleId();
-
-      let jobAlertsCount = 0;
-      if (candidateData.skills && candidateData.skills.length > 0) {
-        const { count: jobAlerts } = await supabase
-          .from('jobs')
-          .select('*', { count: 'exact', head: true })
-          .overlaps('skills_required', candidateData.skills);
-        jobAlertsCount = jobAlerts || 0;
+      if (!candidateData) {
+        setLoading(false);
+        return;
       }
 
-      const { count: applicationsCount } = await supabase
-        .from('applications')
-        .select('*', { count: 'exact', head: true })
-        .eq('candidate_id', candidateData.id);
+      // Build all metric queries
+      const baseQueries = {
+        applicationsCount: supabase
+          .from('applications')
+          .select('*', { count: 'exact', head: true })
+          .eq('candidate_id', candidateData.id),
 
-      const { count: profileViewsCount } = await supabase
-        .from('profile_views')
-        .select('*', { count: 'exact', head: true })
-        .eq('candidate_id', candidateData.id);
+        profileViewsCount: supabase
+          .from('profile_views')
+          .select('*', { count: 'exact', head: true })
+          .eq('candidate_id', candidateData.id),
 
-      const { count: interviewsCount } = await supabase
-        .from('applications')
-        .select('*', { count: 'exact', head: true })
-        .eq('candidate_id', candidateData.id)
-        .eq('status', 'interview_scheduled');
+        interviewsCount: supabase
+          .from('applications')
+          .select('*', { count: 'exact', head: true })
+          .eq('candidate_id', candidateData.id)
+          .eq('status', 'interview_scheduled'),
 
-      const { data: recentApps } = await supabase
-        .from('applications')
-        .select(`
-          id,
-          status,
-          applied_at,
-          job:applications_job_id_fkey (
-            title,
-            recruiter:jobs_recruiter_id_fkey (
-              company_name
+        recentApps: supabase
+          .from('applications')
+          .select(`
+            id, status, applied_at,
+            job:applications_job_id_fkey (
+              title,
+              recruiter:jobs_recruiter_id_fkey ( company_name )
             )
-          )
-        `)
-        .eq('candidate_id', candidateData.id)
-        .order('applied_at', { ascending: false })
-        .limit(3);
+          `)
+          .eq('candidate_id', candidateData.id)
+          .order('applied_at', { ascending: false })
+          .limit(3),
+      };
 
-      const formattedApps = (recentApps || []).map((app) => ({
-        id: app.id,
-        jobTitle: (app.job as any)?.title || 'N/A',
-        company: (app.job as any)?.recruiter?.company_name || 'N/A',
-        status: app.status,
-        appliedAt: new Date(app.applied_at).toLocaleDateString(),
-      }));
+      const conditionalQueries: Record<string, any> = {};
 
-      let notificationsCount = 0;
-      let notifList = [];
+      // Job alerts — only if candidate has saved skills
+      const skills = Array.isArray(candidateData.skills) ? candidateData.skills : [];
+      if (skills.length > 0) {
+        conditionalQueries.jobAlertsCount = supabase
+          .from('jobs')
+          .select('*', { count: 'exact', head: true })
+          .overlaps('skills_required', skills);
+      }
+
       if (userRoleId) {
-        const { count } = await supabase
+        conditionalQueries.notifCount = supabase
           .from('notifications')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', userRoleId)
           .eq('is_read', false);
-        notificationsCount = count || 0;
 
-        const { data } = await supabase
+        conditionalQueries.notifList = supabase
           .from('notifications')
           .select('id, type, data, is_read, created_at')
           .eq('user_id', userRoleId)
           .order('created_at', { ascending: false })
           .limit(10);
-        notifList = data || [];
       }
 
+      // Resolve all in parallel
+      const allEntries = [
+        ...Object.entries(baseQueries),
+        ...Object.entries(conditionalQueries),
+      ];
+
+      const results = await Promise.allSettled(
+        allEntries.map(([key, promise]) => promise.then((res: any) => [key, res]))
+      );
+
+      const dataMap: Record<string, any> = {};
+      results.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          const [key, value] = result.value;
+          dataMap[key] = value;
+        }
+      });
+
+      // Format recent applications
+      const formattedApps = (dataMap.recentApps?.data || []).map((app: any) => ({
+        id: app.id,
+        jobTitle: app.job?.title || 'N/A',
+        company: app.job?.recruiter?.company_name || 'N/A',
+        status: app.status,
+        appliedAt: new Date(app.applied_at).toLocaleDateString(),
+      }));
+
       setStats({
-        applicationsSent: applicationsCount || 0,
-        profileViews: profileViewsCount || 0,
-        interviewsScheduled: interviewsCount || 0,
-        jobAlerts: jobAlertsCount,
-        notifications: notificationsCount,
+        applicationsSent:   dataMap.applicationsCount?.count  || 0,
+        profileViews:       dataMap.profileViewsCount?.count  || 0,
+        interviewsScheduled: dataMap.interviewsCount?.count   || 0,
+        jobAlerts:          dataMap.jobAlertsCount?.count     || 0,
+        notifications:      dataMap.notifCount?.count         || 0,
       });
 
       setRecentApplications(formattedApps);
-      setNotifications(notifList);
+      setNotifications(dataMap.notifList?.data || []);
     } catch (error) {
+      console.error('Dashboard load error:', error);
       toast.error('Failed to load dashboard data');
     } finally {
       setLoading(false);
     }
   };
 
-  const dashboardStats = [
-    { title: 'Applications Sent', value: stats.applicationsSent, icon: FileText, color: 'text-blue-600' },
-    { title: 'Profile Views', value: stats.profileViews, icon: User, color: 'text-orange-500' },
-    { title: 'Interviews Scheduled', value: stats.interviewsScheduled, icon: Briefcase, color: 'text-green-600' },
-    { title: 'Job Alerts', value: stats.jobAlerts, icon: Search, color: 'text-purple-600' },
-    { title: 'Notifications', value: stats.notifications, icon: Bell, color: 'text-yellow-500' },
-  ];
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'applied': return 'bg-blue-100 text-blue-800';
-      case 'under_review': return 'bg-yellow-100 text-yellow-800';
-      case 'interview_scheduled': return 'bg-purple-100 text-purple-800';
-      case 'rejected': return 'bg-red-100 text-red-800';
-      case 'hired': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  // Only update local notification state and stats, no dashboard refresh!
-  const markNotificationAsRead = async (id) => {
+  // ── Mark a notification as read (optimistic update) ──────────────────────
+  const markNotificationAsRead = async (id: string) => {
     const userRoleId = await fetchUserRoleId();
+    if (!userRoleId) return;
+
     await supabase
       .from('notifications')
       .update({ is_read: true })
       .eq('id', id)
       .eq('user_id', userRoleId);
 
-    // Optimistically update local state
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
-    );
-    setStats((prev) => ({
-      ...prev,
-      notifications: Math.max(0, prev.notifications - 1),
-    }));
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
+    setStats((prev) => ({ ...prev, notifications: Math.max(0, prev.notifications - 1) }));
   };
 
-  // Subscribe to notifications for real-time updates
+  // ── Real-time notification subscription ──────────────────────────────────
   useEffect(() => {
     if (!user) return;
-    let subscription;
-    const subscribeToNotifications = async () => {
+    let subscription: any;
+
+    const subscribe = async () => {
       const userRoleId = await fetchUserRoleId();
+      if (!userRoleId) return;
+
       subscription = supabase
         .channel('notifications')
         .on(
           'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'notifications',
-            filter: `user_id=eq.${userRoleId}`,
-          },
-          () => fetchDashboardData()
+          { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${userRoleId}` },
+          (payload) => {
+            if (payload.eventType === 'INSERT') {
+              setNotifications((prev) => [payload.new, ...prev].slice(0, 10));
+              setStats((prev) => ({ ...prev, notifications: prev.notifications + 1 }));
+              toast.info('New notification received!');
+            } else if (payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+              fetchDashboardData();
+            }
+          }
         )
         .subscribe();
     };
-    subscribeToNotifications();
-    return () => {
-      if (subscription) subscription.unsubscribe();
-    };
+
+    subscribe();
+    return () => { if (subscription) subscription.unsubscribe(); };
     // eslint-disable-next-line
   }, [user]);
+
+  const dashboardStats = [
+    { title: 'Applications Sent',    value: stats.applicationsSent,    icon: FileText, color: 'text-blue-600' },
+    { title: 'Profile Views',        value: stats.profileViews,        icon: User,     color: 'text-orange-500' },
+    { title: 'Interviews Scheduled', value: stats.interviewsScheduled, icon: Briefcase, color: 'text-green-600' },
+    { title: 'Job Alerts',           value: stats.jobAlerts,           icon: Search,   color: 'text-purple-600' },
+    { title: 'Notifications',        value: stats.notifications,       icon: Bell,     color: 'text-yellow-500' },
+  ];
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'applied':             return 'bg-blue-100 text-blue-800';
+      case 'under_review':        return 'bg-yellow-100 text-yellow-800';
+      case 'interview_scheduled': return 'bg-purple-100 text-purple-800';
+      case 'rejected':            return 'bg-red-100 text-red-800';
+      case 'hired':               return 'bg-green-100 text-green-800';
+      default:                    return 'bg-gray-100 text-gray-800';
+    }
+  };
 
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2" />
           <p>Loading dashboard...</p>
         </div>
       </div>
@@ -232,7 +253,8 @@ const CandidateDashboard = () => {
 
   return (
     <div className="space-y-6 relative">
-      {/* Notification Bell Icon - absolutely positioned top-right, just below navbar, slightly higher */}
+
+      {/* ── Notification Bell ──────────────────────────────────────────────── */}
       <div className="absolute top-2 right-10 z-50" ref={notifRef}>
         <button
           type="button"
@@ -247,6 +269,7 @@ const CandidateDashboard = () => {
             </span>
           )}
         </button>
+
         {notifOpen && (
           <div
             className="absolute right-0 mt-2 w-[420px] bg-white bg-opacity-95 border border-purple-300 rounded-xl shadow-2xl overflow-y-auto ring-2 ring-pink-200 z-50"
@@ -260,16 +283,22 @@ const CandidateDashboard = () => {
                 notifications.map((notification) => (
                   <div
                     key={notification.id}
-                    className={`flex items-center justify-between gap-3 px-5 py-4 bg-white/60 border-none
-                      ${!notification.is_read ? "ring-2 ring-pink-200" : ""}`}
+                    className={`flex items-center justify-between gap-3 px-5 py-4 bg-white/60 ${
+                      !notification.is_read ? 'ring-2 ring-pink-200' : ''
+                    }`}
                   >
                     <div className="pr-2 flex-1">
-                      <h3 className={`font-semibold text-base mb-1 ${!notification.is_read ? "text-pink-700" : "text-purple-500"}`}>
+                      <h3
+                        className={`font-semibold text-base mb-1 ${
+                          !notification.is_read ? 'text-pink-700' : 'text-purple-500'
+                        }`}
+                      >
                         {notification.type === 'job_alert' ? '✨ New Job Alert' : notification.type}
                       </h3>
                       {notification.data?.job_title && (
                         <p className="text-[1rem] leading-snug text-purple-700 font-medium mb-1">
-                          {notification.data.job_title} at {notification.data.company} ({notification.data.location})
+                          {notification.data.job_title} at {notification.data.company}{' '}
+                          ({notification.data.location})
                         </p>
                       )}
                       <p className="text-xs text-purple-400">
@@ -281,10 +310,10 @@ const CandidateDashboard = () => {
                       variant={notification.is_read ? 'outline' : 'default'}
                       disabled={notification.is_read}
                       onClick={() => markNotificationAsRead(notification.id)}
-                      className={`transition ml-2 ${
+                      className={`ml-2 transition ${
                         notification.is_read
-                          ? "border-purple-300 text-purple-300"
-                          : "bg-pink-500 text-white hover:bg-pink-600"
+                          ? 'border-purple-300 text-purple-300'
+                          : 'bg-pink-500 text-white hover:bg-pink-600'
                       }`}
                     >
                       {notification.is_read ? 'Read' : 'Mark as read'}
@@ -302,7 +331,7 @@ const CandidateDashboard = () => {
         )}
       </div>
 
-      {/* Candidate Dashboard Content - minimal gap above */}
+      {/* ── Header ────────────────────────────────────────────────────────── */}
       <div className="pt-4">
         <h1 className="text-3xl font-bold text-foreground">Candidate Dashboard</h1>
         <p className="text-muted-foreground mt-2">
@@ -310,7 +339,7 @@ const CandidateDashboard = () => {
         </p>
       </div>
 
-      {/* Stats Grid */}
+      {/* ── Stats Grid ────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {dashboardStats.map((stat) => {
           const Icon = stat.icon;
@@ -330,13 +359,11 @@ const CandidateDashboard = () => {
         })}
       </div>
 
-      {/* Quick Actions */}
+      {/* ── Quick Actions ─────────────────────────────────────────────────── */}
       <Card>
         <CardHeader>
           <CardTitle>Quick Actions</CardTitle>
-          <CardDescription>
-            Manage your candidate activities
-          </CardDescription>
+          <CardDescription>Manage your candidate activities</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-4">
@@ -356,13 +383,11 @@ const CandidateDashboard = () => {
         </CardContent>
       </Card>
 
-      {/* Recent Applications */}
+      {/* ── Recent Applications ───────────────────────────────────────────── */}
       <Card>
         <CardHeader>
           <CardTitle>Recent Applications</CardTitle>
-          <CardDescription>
-            Your latest job applications
-          </CardDescription>
+          <CardDescription>Your latest job applications</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -384,7 +409,7 @@ const CandidateDashboard = () => {
                       application.status
                     )}`}
                   >
-                    {application.status.replace('_', ' ')}
+                    {application.status.replace(/_/g, ' ')}
                   </span>
                 </div>
               ))

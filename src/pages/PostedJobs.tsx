@@ -18,7 +18,7 @@ import { useRecruiter } from '@/hooks/useRecruiter';
 
 const PostedJobs = () => {
   const { user } = useAuth();
-  const { profile } = useRecruiter();
+  const { profile, loading: recruiterLoading } = useRecruiter();
   const navigate = useNavigate();
   const [statusFilter, setStatusFilter] = useState('all');
   const [jobs, setJobs] = useState([]);
@@ -41,8 +41,11 @@ const PostedJobs = () => {
   };
 
   useEffect(() => {
-    fetchPostedJobs();
-  }, [profile]);
+    // Wait until the recruiter hook has finished loading before fetching
+    if (!recruiterLoading) {
+      fetchPostedJobs();
+    }
+  }, [profile, recruiterLoading]);
 
   async function fetchPostedJobs() {
     if (!profile) {
@@ -202,7 +205,7 @@ const PostedJobs = () => {
     );
   }
 
-  if (loading) {
+  if (loading || recruiterLoading) {
     return (
       <div className="min-h-screen bg-gray-50">
         <Navbar />

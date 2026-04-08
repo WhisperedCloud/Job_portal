@@ -1,202 +1,222 @@
 export const config = {
   verify_jwt: false,
+  skip_jwt_verification: true,
 };
 
 /// <reference lib="deno.ns" />
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
-if (!GEMINI_API_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-  console.error("Required environment variables are not set");
-}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+/**
+ * 🛠️ SENIOR ENGINEER REFACTOR: parse-resume
+ * Goal: Zero-Crash, High Observability, Robust JSON extraction
+ */
 serve(async (req) => {
-  // Handle CORS preflight
+  // 1. Handle CORS Preflight
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  const authHeader = req.headers.get("Authorization");
+  console.log(`🔐 [AUTH] Header present: ${!!authHeader} (starts with ${authHeader?.substring(0, 15) || 'N/A'})`);
+
+
+  // 🛡️ SECURITY: Request Validation
   if (req.method !== "POST") {
-    return new Response(
-      JSON.stringify({ error: "Only POST requests are allowed" }),
-      { status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ error: "Method not allowed" }), {
+      status: 405,
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
   }
 
-  let body;
-  try {
-    body = await req.json();
-  } catch {
-    return new Response(
-      JSON.stringify({ error: "Invalid JSON input" }),
-      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  }
-
-  const { resumeBase64, mimeType, candidateId } = body;
-
-  if (!resumeBase64) {
-    return new Response(
-      JSON.stringify({ error: "Missing resumeBase64" }),
-      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  }
+  const startTime = Date.now();
+  console.log("🚀 [INBOUND] Processing resume parsing request...");
 
   try {
-    console.log(`Parsing resume for candidate: ${candidateId}`);
-    console.log(`Resume base64 length: ${resumeBase64.length}`);
-    console.log(`MIME type: ${mimeType}`);
+    // 2. Parse and Validate Request Body
+    let body;
+    try {
+      body = await req.json();
+    } catch (e) {
+      console.error("❌ [ERROR] Invalid JSON in request body");
+      return new Response(JSON.stringify({ error: "Malformed JSON payload" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
 
-    const prompt = `You are a resume parser. Analyze the resume document and extract the following information:
+    const { resumeBase64, mimeType, candidateId } = body;
 
-**Instructions:**
-1. Extract the candidate's full name
-2. Extract phone number (with country code if available)
-3. Extract all skills mentioned in the resume
-4. Extract work experience (company names, job titles, dates)
-5. Extract education (degree, institution, year)
-6. Extract location/address if available
-7. Extract any certifications or licenses
+    // 🛡️ INPUT VALIDATION
+    if (!resumeBase64 || resumeBase64.length < 100) {
+      console.warn("⚠️ [WARN] Missing or excessively short resumeBase64");
+      return new Response(JSON.stringify({ error: "Valid resumeBase64 is required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
 
-Return ONLY a JSON object with this exact structure (no markdown, no explanation):
-{
-  "name": "Full Name",
-  "phone": "Phone number with country code",
-  "location": "City, State/Country",
-  "skills": ["skill1", "skill2", "skill3"],
-  "experience": "Detailed work experience as text",
-  "education": "Education details as text",
-  "license_type": "Certification or License name if any",
-  "license_number": "License number if available"
-}
+    console.log(`📊 [STATS] CandidateID: ${candidateId || 'N/A'}`);
+    console.log(`📊 [STATS] Payload Size: ${(resumeBase64.length / 1024).toFixed(2)} KB`);
+    console.log(`📊 [STATS] MIME Type: ${mimeType || 'unknown'}`);
 
-If any field is not found in the resume, use null for that field.`;
+    // check API Key health
+    if (!GEMINI_API_KEY) {
+      console.error("❌ [CRITICAL] GEMINI_API_KEY is not set in environment secrets");
+      throw new Error("Configuration Error: AI Service Key missing");
+    } else {
+      console.log(`🔑 [DEBUG] API Key starts with: ${GEMINI_API_KEY.substring(0, 4)}... (Total: ${GEMINI_API_KEY.length} chars)`);
+    }
 
-    console.log("Sending request to Gemini API...");
+    const prompt = `You are a professional resume parser. Analyze the document and extract structured data.
+    Return ONLY a single valid JSON object. No preamble, no markdown formatting.
+    Structure:
+    {
+      "name": "string",
+      "phone": "string",
+      "location": "string",
+      "skills": ["string"],
+      "experience": "text summary",
+      "education": "text summary",
+      "linkedin_url": "string or null",
+      "seniority_level": "Junior/Mid/Senior/Lead",
+      "domain_expertise": ["string"],
+      "career_trajectory": "text summary",
+      "projects": "text summary",
+      "linkedin_summary": "professional summary",
+      "resume_text": "full extracted text"
+    }`;
 
-    const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    // 3. Invoke Gemini API
+    console.log("🧠 [AI] Calling Gemini v1beta (1.5-flash)...");
 
-    const response = await fetch(GEMINI_API_URL, {
+    // 🛡️ Gemini 1.5 Flash stable model name
+    const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    
+    // 🛡️ Final Base64 Sanitization: Clean padding and whitespace
+    const finalBase64 = resumeBase64.trim().replace(/\s/g, '');
+
+    // 🛡️ Supported Doc Types: PDF, DOCX, DOC, TXT (Gemini inline_data supports PDF and common image types)
+    const finalMimeType = mimeType || "application/pdf";
+
+    // 🚨 Reject unsupported formats
+    if (
+      finalMimeType !== "application/pdf" &&
+      finalMimeType !== "image/png" &&
+      finalMimeType !== "image/jpeg"
+    ) {
+      return new Response(JSON.stringify({
+        error: "Unsupported file type. Please upload PDF only."
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    const apiResponse = await fetch(GEMINI_API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{
           parts: [
             { text: prompt },
-            {
-              inline_data: {
-                mime_type: mimeType || "application/pdf",
-                data: resumeBase64
-              }
-            }
+            { inline_data: { mime_type: finalMimeType, data: finalBase64 } }
           ]
         }],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 8192,
+        generationConfig: { 
+          temperature: 0.1, 
+          maxOutputTokens: 2048, 
+          responseMimeType: "application/json" 
         },
       }),
     });
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      console.error("Gemini API Error:", errorBody);
-      throw new Error(`Gemini API request failed: ${errorBody}`);
+    if (!apiResponse.ok) {
+      const errBody = await apiResponse.text();
+      console.error(`❌ [AI ERROR] Status: ${apiResponse.status} - Body: ${errBody}`);
+
+      if (apiResponse.status === 429) {
+        return new Response(JSON.stringify({
+          error: "Quota Exceeded",
+          status: 429,
+          details: "Gemini API free tier limit reached. Please wait a moment or upgrade your plan.",
+          hint: "The free tier allows 15 requests per minute. Try again in 60 seconds."
+        }), {
+          status: 429,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      return new Response(JSON.stringify({
+        error: "Gemini API Error",
+        status: apiResponse.status,
+        details: errBody,
+        hint: "Check if your GEMINI_API_KEY is active and has access to gemini-1.5-flash."
+      }), {
+        status: apiResponse.status,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
     }
 
-    const data = await response.json();
-    console.log("Gemini response structure:", JSON.stringify(data, null, 2));
+    const data = await apiResponse.json();
+    console.log("✅ [AI SUCCESS] Response received from Gemini");
 
     const candidate = data.candidates?.[0];
-    const finishReason = candidate?.finishReason;
+    const rawText = candidate?.content?.parts?.[0]?.text;
 
-    console.log(`Finish reason: ${finishReason}`);
-
-    if (finishReason === "MAX_TOKENS") {
-      console.error("Gemini response exceeded MAX_TOKENS limit");
-      throw new Error("Response too long. Try with a shorter resume.");
+    if (!rawText) {
+      console.error("❌ [AI ERROR] Empty response content from Gemini", JSON.stringify(data));
+      throw new Error("AI provider returned empty content");
     }
 
-    const parsedText = candidate?.content?.parts?.[0]?.text;
-
-    if (!parsedText) {
-      console.error("Invalid Gemini response - no parsed text:", JSON.stringify(data));
-      throw new Error("Could not parse resume");
-    }
-
-    console.log("Raw parsed text:", parsedText);
-
-    // Parse the JSON response
+    // 4. Robust JSON Extraction
+    console.log("🧹 [PARSER] Cleaning AI output for JSON extraction...");
     let parsedData;
     try {
-      // Remove markdown code blocks if present
-      const cleanedText = parsedText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      parsedData = JSON.parse(cleanedText);
-      console.log("Parsed resume data:", parsedData);
-    } catch (parseError) {
-      console.error("Failed to parse Gemini response:", parsedText);
-      throw new Error("Failed to parse resume data");
-    }
-
-    // If candidateId is provided, update the candidate profile
-    if (candidateId) {
-      const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_KEY!);
-
-      const updateData: any = {};
-
-      if (parsedData.name) updateData.name = parsedData.name;
-      if (parsedData.phone) updateData.phone = parsedData.phone;
-      if (parsedData.location) updateData.location = parsedData.location;
-      if (parsedData.skills && parsedData.skills.length > 0) {
-        // Get existing skills and merge
-        const { data: existingProfile } = await supabase
-          .from('candidates')
-          .select('skills')
-          .eq('id', candidateId)
-          .single();
-
-        const existingSkills = existingProfile?.skills || [];
-        const mergedSkills = [...new Set([...existingSkills, ...parsedData.skills])];
-        updateData.skills = mergedSkills;
-      }
-      if (parsedData.experience) updateData.experience = parsedData.experience;
-      if (parsedData.education) updateData.education = parsedData.education;
-      if (parsedData.license_type) updateData.license_type = parsedData.license_type;
-      if (parsedData.license_number) updateData.license_number = parsedData.license_number;
-
-      const { error: updateError } = await supabase
-        .from('candidates')
-        .update(updateData)
-        .eq('id', candidateId);
-
-      if (updateError) {
-        console.error("Supabase Update Error:", updateError);
-        throw new Error(`Failed to update profile: ${updateError.message}`);
+      // Find JSON object using balanced brace regex
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.warn("⚠️ [WARN] No JSON braces found. Raw output:", rawText.substring(0, 200));
+        throw new Error("No JSON structure detected in AI response");
       }
 
-      console.log("Profile updated successfully!");
+      const cleanJson = jsonMatch[0].replace(/```json|```/g, '').trim();
+      parsedData = JSON.parse(cleanJson);
+      console.log("✅ [PARSER SUCCESS] Data successfully mapped to JSON schema");
+    } catch (parseErr) {
+      console.error("❌ [PARSER ERROR] Extraction failed. Raw Text Snippet:", rawText.substring(0, 500));
+      return new Response(JSON.stringify({
+        error: "Data parsing failed",
+        raw_output: rawText.substring(0, 1000)
+      }), {
+        status: 422,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
     }
 
-    return new Response(
-      JSON.stringify(parsedData),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    const duration = Date.now() - startTime;
+    console.log(`🎯 [COMPLETE] Request fulfilled in ${duration}ms`);
+
+    return new Response(JSON.stringify(parsedData), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
 
   } catch (err: any) {
-    console.error("Error during processing:", err.message);
-    return new Response(
-      JSON.stringify({ error: "Processing failed", details: String(err) }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    console.error("❌ [FATAL ERROR] Unhandled Exception:", err.message);
+    return new Response(JSON.stringify({
+      error: "Internal Processing Failure",
+      message: err.message,
+      stack: err.stack?.split("\n").slice(0, 3).join("\n") // Partial stack trace for security
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
   }
 });

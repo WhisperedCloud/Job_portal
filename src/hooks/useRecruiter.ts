@@ -176,70 +176,72 @@ export const useRecruiter = () => {
 
     try {
       console.log('Fetching recruiter stats for profile:', profile.id);
+      const now = new Date().toISOString();
 
-      // Fetch all jobs posted by this recruiter with application_deadline
-      const { data: jobsData, error: jobsError } = await supabase
-        .from('jobs')
-        .select('id, title, created_at, application_deadline, applications(id, status)')
-        .eq('recruiter_id', profile.id)
-        .order('created_at', { ascending: false });
-
-      if (jobsError) {
-        console.error('Error fetching jobs:', jobsError);
-        throw jobsError;
-      }
-
-      console.log('Fetched jobs data:', jobsData);
-
-      let totalApplications = 0;
-      let activeJobs = 0;
-      let closedJobs = 0;
-      let totalApplicationsReviewed = 0;
-
-      jobsData.forEach(job => {
-        // Determine if job is closed based on application_deadline
-        const jobClosed = isJobClosed(job.application_deadline);
-
-        if (jobClosed) {
-          closedJobs++;
-        } else {
-          activeJobs++;
-        }
+      const [
+        totalJobsRes,
+        activeJobsRes,
+        closedJobsRes,
+        totalAppsRes,
+        reviewedAppsRes,
+        recentJobsRes
+      ] = await Promise.all([
+        supabase
+          .from('jobs')
+          .select('*', { count: 'exact', head: true })
+          .eq('recruiter_id', profile.id),
         
-        // Count total and reviewed applications
-        totalApplications += job.applications.length;
-        job.applications.forEach(app => {
-          if (app.status === 'under_review' || app.status === 'hired' || app.status === 'rejected' || app.status === 'interview_scheduled') {
-            totalApplicationsReviewed++;
-          }
-        });
-      });
+        supabase
+          .from('jobs')
+          .select('*', { count: 'exact', head: true })
+          .eq('recruiter_id', profile.id)
+          .or(`application_deadline.is.null,application_deadline.gt.${now}`),
+          
+        supabase
+          .from('jobs')
+          .select('*', { count: 'exact', head: true })
+          .eq('recruiter_id', profile.id)
+          .not('application_deadline', 'is', null)
+          .lte('application_deadline', now),
+          
+        supabase
+          .from('applications')
+          .select('id, job!inner(recruiter_id)', { count: 'exact', head: true })
+          .eq('job.recruiter_id', profile.id),
 
-      console.log('Calculated stats:', {
-        totalJobs: jobsData.length,
-        activeJobs,
-        closedJobs,
-        totalApplications,
-        totalApplicationsReviewed
-      });
+        supabase
+          .from('applications')
+          .select('id, status, job!inner(recruiter_id)', { count: 'exact', head: true })
+          .eq('job.recruiter_id', profile.id)
+          .in('status', ['under_review', 'hired', 'rejected', 'interview_scheduled']),
 
-      // Get recent jobs with their status
-      const recentJobs = jobsData.slice(0, 5).map(job => ({
-        id: job.id,
-        title: job.title,
-        applications: job.applications.length,
-        postedAt: new Date(job.created_at).toLocaleDateString(),
-        status: isJobClosed(job.application_deadline) ? 'closed' : 'active'
-      }));
+        supabase
+          .from('jobs')
+          .select('id, title, created_at, application_deadline, applications(id)')
+          .eq('recruiter_id', profile.id)
+          .order('created_at', { ascending: false })
+          .limit(5)
+      ]);
 
-      return {
-        totalJobs: jobsData.length,
-        activeJobs: activeJobs,
-        closedJobs: closedJobs,
-        totalApplications: totalApplications,
-        reviewedApplications: totalApplicationsReviewed,
-        recentJobs: recentJobs
+      // Wait, Promise.all order must match
+      // Let's re-verify the promises
+      
+      const stats = {
+        totalJobs: totalJobsRes.count || 0,
+        activeJobs: activeJobsRes.count || 0,
+        closedJobs: closedJobsRes.count || 0,
+        totalApplications: totalAppsRes.count || 0,
+        reviewedApplications: reviewedAppsRes.count || 0,
+        recentJobs: (recentJobsRes.data || []).map(job => ({
+          id: job.id,
+          title: job.title,
+          applications: job.applications?.length || 0,
+          postedAt: new Date(job.created_at).toLocaleDateString(),
+          status: isJobClosed(job.application_deadline) ? 'closed' : 'active'
+        }))
       };
+
+      return stats;
     } catch (error) {
       console.error('Error fetching recruiter stats:', error);
       toast.error('Failed to load statistics');

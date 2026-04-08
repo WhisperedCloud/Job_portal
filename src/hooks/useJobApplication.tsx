@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCandidate } from '@/hooks/useCandidate';
 import { toast } from 'sonner';
+import { notifyRecruiterOnApplication } from '@/utils/notifyCandidatesOnJobPost';
 
 export const useJobApplication = () => {
   const { user } = useAuth();
@@ -61,7 +62,25 @@ export const useJobApplication = () => {
         throw applicationError;
       }
 
-      // Step 3: Update candidate's latest resume URL if different
+      // Step 3: Notify recruiter
+      if (application) {
+        const { data: jobData } = await supabase
+          .from('jobs')
+          .select('recruiter_id, title')
+          .eq('id', jobId)
+          .single();
+
+        if (jobData?.recruiter_id) {
+          notifyRecruiterOnApplication(supabase, {
+            recruiterId: jobData.recruiter_id,
+            candidateName: profile.name || 'A candidate',
+            jobTitle: jobData.title,
+            applicationId: application.id,
+          }).catch(e => console.warn('Recruiter notification failed:', e));
+        }
+      }
+
+      // Step 4: Update candidate's latest resume URL if different
       if (resumeUrl && profile.resume_url !== resumeUrl) {
         await supabase
           .from('candidates')

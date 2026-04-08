@@ -41,15 +41,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const initializeAuth = async () => {
       try {
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Session check timeout')), 3000)
+          setTimeout(() => reject(new Error('Session check timeout')), 10000)
         );
         const sessionPromise = supabase.auth.getSession();
 
-        const { data: { session }, error: sessionError } = await Promise.race([
-          sessionPromise,
-          timeoutPromise
-        ]) as any;
-
+        const { data: { session }, error: sessionError } =
+  await Promise.race([sessionPromise, timeoutPromise]) as any;
         if (sessionError) {
           setUser(null);
           setLoading(false);
@@ -92,19 +89,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     initializeAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
+      console.log('🔄 [AUTH] Event:', event, session?.user?.id);
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') && session?.user) {
         await fetchUserData(session.user.id, session.user.email || '', session.user.user_metadata);
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
-        toast({
-          title: "Session Expired",
-          description: "You have been logged out.",
-        });
         navigate('/login', { replace: true });
-      } else if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-        if (session?.user) {
-          await fetchUserData(session.user.id, session.user.email || '', session.user.user_metadata);
-        }
       }
     });
 
@@ -113,56 +103,65 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, []);
 
-  const fetchUserData = async (userId: string, email: string, userMetadata?: any) => {
-    try {
-      // 1. Start with role from metadata as a reliable fallback
-      let role = (userMetadata?.role || 'candidate') as UserRole;
+  const fetchingRef = useRef<string | null>(null);
 
-      // 2. Try to get latest role from user_roles table with a generous timeout
-      const timeoutPromise = (ms: number) => new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Request timeout')), ms)
+  const fetchUserData = async (userId: string, email: string, userMetadata?: any) => {
+    // 🛡️ LOCK: Prevent overlapping concurrent enrichment calls for the same user
+    if (fetchingRef.current === userId) return;
+    fetchingRef.current = userId;
+
+    try {
+      console.log('Enriching user session from database...', { userId });
+
+      // 1. Define a timeout promise (3 seconds)
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('DB Timeout')), 3000)
       );
 
-      try {
-        const fetchRolePromise = supabase
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', userId)
-          .maybeSingle();
+      // Wrapper to race any promise against our timeout
+      const withTimeout = async <T,>(p: Promise<T>): Promise<T> => {
+        return Promise.race([p, timeoutPromise]) as Promise<T>;
+      };
 
-        const { data: roleData } = await Promise.race([
-          fetchRolePromise,
-          timeoutPromise(8000) // 8 second timeout for role check
-        ]) as any;
-
-        if (roleData && roleData.role) {
-          role = roleData.role as UserRole;
-        }
-      } catch (err) {
-        console.warn('Timeout or error fetching role, using fallback:', err);
-      }
-
-      // 3. Get candidate_id from candidates table (if candidate) with timeout protection
+      // 2. Start with metadata role as a reliable baseline
+      let role = (userMetadata?.role || 'candidate') as UserRole;
       let candidate_id: string | undefined;
-      if (role === 'candidate') {
-        try {
-          const fetchCandidatePromise = supabase
-            .from('candidates')
-            .select('id')
-            .eq('user_id', userId)
-            .maybeSingle();
 
-          const { data: candidateRecord } = await Promise.race([
-            fetchCandidatePromise,
-            timeoutPromise(5000) // 5 second timeout for candidate profile check
-          ]) as any;
-          
-          candidate_id = candidateRecord?.id;
-        } catch (err) {
-          console.warn('Timeout or error fetching candidate profile:', err);
+      // 3. Try to enrich with database data
+      try {
+        await withTimeout((async () => {
+          console.log('Fetching enrichment data for user:', userId);
+          // Parallelize Role and Profile fetches
+          const [roleResponse, candidateResponse] = await Promise.all([
+            supabase.from('user_roles').select('role').eq('user_id', userId).maybeSingle(),
+            supabase.from('candidates').select('id').eq('user_id', userId).maybeSingle()
+          ]);
+
+          if (roleResponse.error) {
+            console.error('Role Fetch Error:', roleResponse.error);
+          }
+          if (candidateResponse.error) {
+            console.error('Candidate Fetch Error:', candidateResponse.error);
+          }
+
+          if (!roleResponse.error && roleResponse.data?.role) {
+            role = roleResponse.data.role as UserRole;
+          }
+
+          if (candidateResponse.data?.id) {
+            candidate_id = candidateResponse.data.id;
+          }
+          console.log('Enrichment complete:', { role, candidate_id });
+        })());
+      } catch (err: any) {
+        if (err.message === 'DB Timeout') {
+          console.warn('Database enrichment timed out after 10s. Continuing with metadata role.');
+        } else {
+          console.warn('Enrichment failed:', err.message);
         }
       }
 
+      // 4. Update state (guaranteed to complete because of timeout)
       setUser({
         id: userId,
         email: email,
@@ -172,16 +171,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       });
 
     } catch (error: any) {
-      console.error('Fatal error in fetchUserData:', error);
-      // Even on fatal error, try to use metadata to keep the session alive with the right role
-      const fallbackRole = (userMetadata?.role || 'candidate') as UserRole;
-      setUser({
-        id: userId,
-        email: email,
-        role: fallbackRole,
-        candidate_id: undefined,
-        created_at: new Date().toISOString()
-      });
+    } finally {
+      fetchingRef.current = null;
     }
   };
 
