@@ -266,14 +266,24 @@ const RecruiterApplications = () => {
       if (error) throw error;
 
       // `data` is the saved analysis_results row from the edge function
-      // Directly update local state so score shows immediately (avoids RLS re-fetch issues)
+      // Directly update local state for ALL applications from this candidate
+      // This ensures name consistency across the entire dashboard instantly
       if (data) {
         setApplications(prev =>
-          prev.map(app =>
-            app.id === application.id
-              ? { ...app, analysis: data }
-              : app
-          )
+          prev.map(app => {
+            const isTargetCandidate = app.candidate?.id === application.candidate?.id;
+            return isTargetCandidate
+              ? { 
+                  ...app, 
+                  // Only update analysis for the specific application being processed
+                  analysis: app.id === application.id ? data : app.analysis,
+                  // Always update the name for everyone if a real name was found
+                  candidate: data.candidate_name 
+                    ? { ...app.candidate, name: data.candidate_name } 
+                    : app.candidate 
+                }
+              : app;
+          })
         );
       }
 

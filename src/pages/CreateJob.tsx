@@ -115,12 +115,9 @@ const CreateJob = () => {
         });
 
         // Trigger Supabase Edge Function for email alerts (non-blocking for redirect)
-        fetch('https://epspgkanbtjrneoqyttp.supabase.co/functions/v1/job-alert', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ record: { ...createdJob, skills_required: skills } }),
+        supabase.functions.invoke('job-alert', {
+          body: { record: { ...createdJob, skills_required: skills } },
         }).catch(e => {
-          // Optionally log email alert errors
           console.error('Email job alert failed:', e);
         });
       }

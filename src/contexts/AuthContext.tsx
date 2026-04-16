@@ -68,7 +68,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
 
         if (session?.user) {
-          await fetchUserData(session.user.id, session.user.email || '', session.user.user_metadata);
+          // Sync profile in background without blocking the UI
+          fetchUserData(session.user.id, session.user.email || '', session.user.user_metadata);
         } else {
           setUser(null);
           const publicRoutes = ['/login', '/register', '/'];
@@ -93,7 +94,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session?.user) {
-        await fetchUserData(session.user.id, session.user.email || '', session.user.user_metadata);
+        // Instant navigation for sign-in event
+        fetchUserData(session.user.id, session.user.email || '', session.user.user_metadata);
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
         toast({
@@ -118,22 +120,30 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       // 1. Start with role from metadata as a reliable fallback
       let role = (userMetadata?.role || 'candidate') as UserRole;
 
-      // 2. Try to get latest role from user_roles table with a generous timeout
+      // 2. Try to get latest role from user_roles table with a generous timeout and retry
       const timeoutPromise = (ms: number) => new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Request timeout')), ms)
       );
 
-      try {
-        const fetchRolePromise = supabase
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', userId)
-          .maybeSingle();
+      const fetchWithRetry = async (fetchFn: () => PromiseLike<any>, retries = 2) => {
+        for (let i = 0; i <= retries; i++) {
+          try {
+            return await Promise.race([
+              fetchFn() as any,
+              timeoutPromise(5000)
+            ]);
+          } catch (err) {
+            if (i === retries) throw err;
+            console.log(`Retry ${i + 1} for fetch (2s timeout)...`);
+            await new Promise(r => setTimeout(r, 1000));
+          }
+        }
+      };
 
-        const { data: roleData } = await Promise.race([
-          fetchRolePromise,
-          timeoutPromise(8000) // 8 second timeout for role check
-        ]) as any;
+      try {
+        const roleData = await fetchWithRetry(() => 
+          supabase.from('user_roles').select('role').eq('user_id', userId).maybeSingle()
+        ) as any;
 
         if (roleData && roleData.role) {
           role = roleData.role as UserRole;
@@ -142,24 +152,32 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         console.warn('Timeout or error fetching role, using fallback:', err);
       }
 
-      // 3. Get candidate_id from candidates table (if candidate) with timeout protection
+      // 3. Guaranteed candidate profile sync
       let candidate_id: string | undefined;
       if (role === 'candidate') {
         try {
-          const fetchCandidatePromise = supabase
+          // We use upsert here to ensure that if a row is missing, it's created.
+          // This solves the "Candidate ID missing" issue once and for all.
+          const { data: syncData, error: syncError } = await (supabase
             .from('candidates')
+            .upsert({
+              user_id: userId,
+              email: email,
+              name: userMetadata?.full_name || email.split('@')[0], // Fallback name
+            }, { onConflict: 'user_id' })
             .select('id')
-            .eq('user_id', userId)
-            .maybeSingle();
+            .single() as any);
 
-          const { data: candidateRecord } = await Promise.race([
-            fetchCandidatePromise,
-            timeoutPromise(5000) // 5 second timeout for candidate profile check
-          ]) as any;
-          
-          candidate_id = candidateRecord?.id;
+          if (syncError) {
+            console.warn('Profile sync failed, attempting simple fetch:', syncError);
+            // Fallback to fetch if upsert fails (e.g. unique constraint race)
+            const { data: fetchRecord } = await supabase.from('candidates').select('id').eq('user_id', userId).maybeSingle();
+            candidate_id = fetchRecord?.id;
+          } else {
+            candidate_id = syncData?.id;
+          }
         } catch (err) {
-          console.warn('Timeout or error fetching candidate profile:', err);
+          console.warn('Fatal error syncing profile:', err);
         }
       }
 
@@ -205,11 +223,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
 
       if (data.user) {
-        await fetchUserData(data.user.id, data.user.email || '', data.user.user_metadata);
+        // Non-blocking fetch for deeper profile data
+        fetchUserData(data.user.id, data.user.email || '', data.user.user_metadata);
+        
         toast({
           title: "Login Successful",
           description: "Welcome back!",
         });
+        
         navigate('/dashboard', { replace: true });
         setLoading(false);
       }

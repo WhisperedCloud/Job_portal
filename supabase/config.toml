@@ -1,1 +1,22 @@
 project_id = "epspgkanbtjrneoqyttp"
+
+[functions.job-match-score]
+verify_jwt = false
+
+[functions.parse-resume]
+verify_jwt = false
+
+[functions.enrich-profile]
+verify_jwt = false
+
+[functions.generate-embeddings]
+verify_jwt = false
+
+[functions.semantic-match]
+verify_jwt = false
+
+[functions.analyze-resume]
+verify_jwt = false
+
+[functions.job-alert]
+verify_jwt = false

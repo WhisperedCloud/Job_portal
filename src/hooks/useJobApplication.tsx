@@ -61,12 +61,53 @@ export const useJobApplication = () => {
         throw applicationError;
       }
 
-      // Step 3: Update candidate's latest resume URL if different
-      if (resumeUrl && profile.resume_url !== resumeUrl) {
-        await supabase
-          .from('candidates')
-          .update({ resume_url: resumeUrl })
-          .eq('id', profile.id);
+      // Step 3: Update candidate's latest resume URL and proactively extract their real name
+      if (resumeUrl) {
+        setUploadProgress('Finalizing application...');
+        try {
+          // Send to parse-resume to extract real name and avoid email placeholders
+          const base64Resume = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve((reader.result as string).split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(resumeFile);
+          });
+          
+          const { data: parsedData } = await supabase.functions.invoke('parse-resume', {
+            body: {
+              resumeBase64: base64Resume,
+              mimeType: resumeFile.type,
+              candidateId: profile.id,
+            }
+          });
+          
+          // If parse successful, update candidate with real name and merged skills
+          if (parsedData && parsedData.name) {
+            const currentSkills = Array.isArray(profile.skills) ? profile.skills : [];
+            const newSkills = Array.isArray(parsedData.skills) ? parsedData.skills : [];
+            const mergedSkills = Array.from(new Set([...currentSkills, ...newSkills]));
+            
+            await supabase
+              .from('candidates')
+              .update({ 
+                 resume_url: resumeUrl, 
+                 name: parsedData.name,
+                 skills: mergedSkills
+              })
+              .eq('id', profile.id);
+          } else if (profile.resume_url !== resumeUrl) {
+            // Fallback: just update the resume URL
+            await supabase
+              .from('candidates')
+              .update({ resume_url: resumeUrl })
+              .eq('id', profile.id);
+          }
+        } catch (err) {
+          console.warn("Silent failure on resume parse during submission. Falling back to URL update only.", err);
+          if (profile.resume_url !== resumeUrl) {
+            await supabase.from('candidates').update({ resume_url: resumeUrl }).eq('id', profile.id);
+          }
+        }
       }
 
       setUploadProgress('');

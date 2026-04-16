@@ -60,7 +60,7 @@ serve(async (req) => {
     const prompt = `You are a resume parser. Analyze the resume document and extract the following information:
 
 **Instructions:**
-1. Extract the candidate's full name
+1. Extract the candidate's FULL FORMAL NAME (e.g. "John Doe"). This is high priority. Ignore emails or usernames.
 2. Extract phone number (with country code if available)
 3. Extract all skills mentioned in the resume
 4. Extract work experience (company names, job titles, dates)
@@ -77,36 +77,57 @@ Return ONLY a JSON object with this exact structure (no markdown, no explanation
   "experience": "Detailed work experience as text",
   "education": "Education details as text",
   "license_type": "Certification or License name if any",
-  "license_number": "License number if available"
+  "license_number": "License number if available",
+  "seniority": "Junior/Senior/Principal/Lead",
+  "domain_focus": "Primary industry/tech domain (e.g. FinTech, AI, Backend)",
+  "career_trajectory": "Concise summary of career path (e.g. Rapidly advancing, specializing in X)"
 }
 
 If any field is not found in the resume, use null for that field.`;
 
     console.log("Sending request to Gemini API...");
 
-    const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    let response;
+    let geminiErrorTxt = "";
 
-    const response = await fetch(GEMINI_API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: prompt },
-            {
-              inline_data: {
-                mime_type: mimeType || "application/pdf",
-                data: resumeBase64
-              }
-            }
-          ]
-        }],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 8192,
-        },
-      }),
-    });
+    const models = [
+      "gemini-2.5-flash", 
+      "gemini-3.1-flash-lite-preview", 
+      "gemini-1.5-flash", 
+      "gemini-1.5-flash-latest"
+    ];
+    const versions = ["v1", "v1beta"];
+
+    outerLoop: for (const version of versions) {
+      for (const model of models) {
+        const endpoint = `https://generativelanguage.googleapis.com/${version}/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+        console.log(`Trying Gemini: ${version}/${model}`);
+        try {
+          response = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType || "application/pdf", data: resumeBase64 } }] }],
+              generationConfig: { temperature: 0.1, maxOutputTokens: 2048 },
+            }),
+          });
+          
+          if (response.ok) {
+            geminiErrorTxt = "";
+            break outerLoop;
+          }
+          geminiErrorTxt = await response.text();
+          console.warn(`Failed ${version}/${model}: ${response.status} - ${geminiErrorTxt}`);
+        } catch (err: any) {
+          geminiErrorTxt = err.message || String(err);
+          console.warn(`Fetch error on ${version}/${model}:`, geminiErrorTxt);
+        }
+      }
+    }
+
+    if (!response || !response.ok) {
+      throw new Error(`Gemini API failed all endpoints. Latest error: ${geminiErrorTxt}`);
+    }
 
     if (!response.ok) {
       const errorBody = await response.text();
@@ -152,7 +173,10 @@ If any field is not found in the resume, use null for that field.`;
     if (candidateId) {
       const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_KEY!);
 
-      const updateData: any = {};
+      const updateData: any = { 
+        updated_at: new Date().toISOString(),
+        resume_text: fullText 
+      };
 
       if (parsedData.name) updateData.name = parsedData.name;
       if (parsedData.phone) updateData.phone = parsedData.phone;
@@ -173,6 +197,9 @@ If any field is not found in the resume, use null for that field.`;
       if (parsedData.education) updateData.education = parsedData.education;
       if (parsedData.license_type) updateData.license_type = parsedData.license_type;
       if (parsedData.license_number) updateData.license_number = parsedData.license_number;
+      if (parsedData.seniority) updateData.seniority = parsedData.seniority;
+      if (parsedData.domain_focus) updateData.domain_focus = parsedData.domain_focus;
+      if (parsedData.career_trajectory) updateData.career_trajectory = parsedData.career_trajectory;
 
       const { error: updateError } = await supabase
         .from('candidates')

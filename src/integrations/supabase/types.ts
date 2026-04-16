@@ -81,6 +81,14 @@ export type Database = {
           updated_at: string | null
           user_id: string
           email?: string
+          seniority: string | null
+          domain_focus: string | null
+          career_trajectory: string | null
+          linkedin_url: string | null
+          headline: string | null
+          about: string | null
+          linkedin_data: Json | null
+          embedding: string | null
         }
         Insert: {
           created_at?: string | null
@@ -97,6 +105,14 @@ export type Database = {
           updated_at?: string | null
           user_id: string
           email?: string
+          seniority?: string | null
+          domain_focus?: string | null
+          career_trajectory?: string | null
+          linkedin_url?: string | null
+          headline?: string | null
+          about?: string | null
+          linkedin_data?: Json | null
+          embedding?: string | null
         }
         Update: {
           created_at?: string | null
@@ -113,6 +129,14 @@ export type Database = {
           updated_at?: string | null
           user_id?: string
           email?: string
+          seniority?: string | null
+          domain_focus?: string | null
+          career_trajectory?: string | null
+          linkedin_url?: string | null
+          headline?: string | null
+          about?: string | null
+          linkedin_data?: Json | null
+          embedding?: string | null
         }
         Relationships: []
       }
@@ -134,6 +158,8 @@ export type Database = {
           job_type: string | null
           salary_range: string | null
           contact_email: string | null
+          embedding: string | null
+          category: string | null
         }
         Insert: {
           created_at?: string | null
@@ -414,6 +440,48 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "user_roles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      candidate_job_scores: {
+        Row: {
+          id: string
+          candidate_id: string
+          job_id: string
+          score: number
+          breakdown: Json | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          candidate_id: string
+          job_id: string
+          score: number
+          breakdown?: Json | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          candidate_id?: string
+          job_id?: string
+          score?: number
+          breakdown?: Json | null
+          created_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candidate_job_scores_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "candidate_job_scores_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
             referencedColumns: ["id"]
           }
         ]

@@ -1,3 +1,7 @@
+export const config = {
+  verify_jwt: false,
+};
+
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -52,8 +56,6 @@ serve(async (req) => {
   try {
     console.log(`Analyzing resume for application: ${applicationId}`);
 
-    const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-
     const promptText = `You are a technical recruiter. Compare the candidate's resume with the job description.
 
 JOB DESCRIPTION:
@@ -61,6 +63,7 @@ ${jobDescription}
 
 Return ONLY valid JSON in this exact format (no markdown, no explanation):
 {
+  "candidate_name": "Full Name of the candidate (e.g. 'John Doe')",
   "overallMatchScore": <number 0-100>,
   "keySkillsMatched": ["skill1", "skill2"],
   "missingSkills": ["skill1", "skill2"],
@@ -85,25 +88,53 @@ Return ONLY valid JSON in this exact format (no markdown, no explanation):
       ];
     }
 
-    const response = await fetch(GEMINI_API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 8192 },
-      }),
-    });
+    const models = [
+      "gemini-2.5-flash", 
+      "gemini-3.1-flash-lite-preview", 
+      "gemini-1.5-flash", 
+      "gemini-1.5-flash-latest"
+    ];
+    const versions = ["v1", "v1beta"];
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      console.error("Gemini API Error:", errorBody);
-      if (response.status === 429) {
+    let response;
+    let geminiErrorTxt = "";
+
+    outerLoop: for (const version of versions) {
+      for (const model of models) {
+        const endpoint = `https://generativelanguage.googleapis.com/${version}/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+        console.log(`Trying Gemini: ${version}/${model}`);
+        try {
+          response = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts }],
+              generationConfig: { temperature: 0.2, maxOutputTokens: 8192 },
+            }),
+          });
+          
+          if (response.ok) {
+            geminiErrorTxt = "";
+            break outerLoop;
+          }
+          geminiErrorTxt = await response.text();
+          console.warn(`Failed ${version}/${model}: ${response.status} - ${geminiErrorTxt}`);
+        } catch (err: any) {
+          geminiErrorTxt = err.message || String(err);
+          console.warn(`Fetch error on ${version}/${model}:`, geminiErrorTxt);
+        }
+      }
+    }
+
+    if (!response || !response.ok) {
+      console.error("Gemini API Error:", geminiErrorTxt);
+      if (response && response.status === 429) {
         return new Response(
-          JSON.stringify({ error: "AI quota exceeded. Try again later." }),
+          JSON.stringify({ error: "AI quota exceeded across all models. Try again later." }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      throw new Error(`Gemini API request failed: ${errorBody}`);
+      throw new Error(`Gemini API request failed on all fallbacks: ${geminiErrorTxt}`);
     }
 
     const geminiData = await response.json();
@@ -155,9 +186,41 @@ Return ONLY valid JSON in this exact format (no markdown, no explanation):
       throw new Error(`Database insert failed: ${dbError.message}`);
     }
 
+    // Lazy Name Correction
+    if (analysis.candidate_name) {
+      try {
+        const { data: appData } = await supabase
+          .from('applications')
+          .select('candidate_id')
+          .eq('id', applicationId)
+          .single();
+        
+        if (appData?.candidate_id) {
+          const { data: candData } = await supabase
+            .from('candidates')
+            .select('name, email')
+            .eq('id', appData.candidate_id)
+            .single();
+          
+          const currentName = candData?.name || '';
+          const emailPrefix = candData?.email?.split('@')[0] || '';
+          
+          if (!currentName || currentName === emailPrefix || !currentName.includes(' ')) {
+            console.log(`Updating candidate ${appData.candidate_id} name to ${analysis.candidate_name}`);
+            await supabase
+              .from('candidates')
+              .update({ name: analysis.candidate_name, updated_at: new Date().toISOString() })
+              .eq('id', appData.candidate_id);
+          }
+        }
+      } catch (err) {
+        console.warn("Lazy name update failed:", err);
+      }
+    }
+
     console.log("Analysis saved successfully:", savedData.id);
 
-    return new Response(JSON.stringify(savedData), {
+    return new Response(JSON.stringify({ ...savedData, candidate_name: analysis.candidate_name }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {

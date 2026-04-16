@@ -1,19 +1,29 @@
 import { serve } from 'https://deno.land/std@0.140.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-const supabaseUrl = Deno.env.get('VITE_SUPABASE_URL')!
-const supabaseKey = Deno.env.get('VITE_SUPABASE_SERVICE_ROLE_KEY')!
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const supabase = createClient(supabaseUrl, supabaseKey)
 
 const SEND_JOB_ALERT_URL = "https://epspgkanbtjrneoqyttp.supabase.co/functions/v1/send-job-alert"
 
 serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
   try {
     const { record: job } = await req.json()
-    if (!job) return new Response('No job data found', { status: 400 })
+    if (!job) return new Response('No job data found', { status: 400, headers: corsHeaders })
 
     const jobSkills = Array.isArray(job.skills_required) ? job.skills_required : []
-    if (jobSkills.length === 0) return new Response('No skills required for job', { status: 400 })
+    if (jobSkills.length === 0) return new Response('No skills required for job', { status: 400, headers: corsHeaders })
 
     // Fetch candidates whose skills overlap with jobSkills (Postgres array operator)
     const { data: candidates, error } = await supabase
@@ -23,10 +33,11 @@ serve(async (req) => {
 
     if (error) {
       console.error("Supabase error:", error)
-      return new Response('Error fetching candidates', { status: 500 })
+      return new Response('Error fetching candidates', { status: 500, headers: corsHeaders })
     }
+    
     if (!candidates || candidates.length === 0) {
-      return new Response('No matching candidates found.', { status: 200 })
+      return new Response('No matching candidates found.', { status: 200, headers: corsHeaders })
     }
 
     // Parallel email sending
@@ -35,7 +46,10 @@ serve(async (req) => {
       .map(candidate =>
         fetch(SEND_JOB_ALERT_URL, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseKey}` // Ensure recursive call has auth
+          },
           body: JSON.stringify({
             to: candidate.email,
             subject: `New Job Alert: ${job.title}`,
@@ -73,9 +87,9 @@ Apply now on the Job Portal!
     const results = await Promise.all(emailPromises)
     const sentCount = results.filter(res => res.ok).length
 
-    return new Response(`Job alert emails sent to ${sentCount} candidate(s).`, { status: 200 })
+    return new Response(`Job alert emails sent to ${sentCount} candidate(s).`, { status: 200, headers: corsHeaders })
   } catch (err) {
     console.error("Function error:", err)
-    return new Response('Server error', { status: 500 })
+    return new Response('Server error', { status: 500, headers: corsHeaders })
   }
 })

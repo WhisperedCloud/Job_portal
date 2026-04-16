@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { MatchQualityCard } from './MatchQualityCard';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -11,8 +12,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
 const CircularScore = ({ score, loading = false }: { score: number; loading?: boolean }) => {
+  const safeScore = typeof score === 'number' ? score : 0;
   const circumference = 2 * Math.PI * 24;
-  const offset = circumference * (1 - score / 100);
+  const offset = circumference * (1 - safeScore / 100);
 
   if (loading) {
     return (
@@ -48,8 +50,8 @@ const CircularScore = ({ score, loading = false }: { score: number; loading?: bo
           }}
         />
       </svg>
-      <span className="absolute text-sm font-bold" style={{ color: getColor(score) }}>
-        {score}%
+      <span className="absolute text-sm font-bold" style={{ color: getColor(safeScore) }}>
+        {Math.round(safeScore)}%
       </span>
     </div>
   );
@@ -149,7 +151,7 @@ const JobListing = () => {
   const [isApplicationModalOpen, setIsApplicationModalOpen] = useState(false);
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [jobScores, setJobScores] = useState<{ [jobId: string]: number }>({});
+  const [jobScores, setJobScores] = useState<{ [jobId: string]: { score: number; reasoning?: string; breakdown?: any } }>({});
   const [loadingScores, setLoadingScores] = useState<{ [jobId: string]: boolean }>({});
   const [viewJob, setViewJob] = useState(null);
   const [isJobModalOpen, setIsJobModalOpen] = useState(false);
@@ -159,35 +161,42 @@ const JobListing = () => {
   }, []);
 
   useEffect(() => {
-    if (user?.id) {
-      loadScoresFromLocalStorage();
+    if (user?.id && user?.candidate_id) {
+      fetchScores();
     } else {
       setJobScores({});
     }
-  }, [user?.id]);
+  }, [user?.id, user?.candidate_id]);
 
-  const loadScoresFromLocalStorage = () => {
-    if (!user?.id) return;
-    try {
-      const storageKey = `jobMatchScores_${user.id}`;
-      const storedScores = localStorage.getItem(storageKey);
-      if (storedScores) {
-        setJobScores(JSON.parse(storedScores));
-      } else {
-        setJobScores({});
-      }
-    } catch (error) {
-      console.error('Failed to load scores from local storage:', error);
+  const fetchScores = async () => {
+    let currentId = user?.candidate_id;
+    
+    // If missing, try one quick background fetch to get the ID
+    if (!currentId && user?.id) {
+       const { data: profile } = await supabase.from('candidates').select('id').eq('user_id', user.id).maybeSingle();
+       if (profile) currentId = profile.id;
     }
-  };
 
-  const saveScoresToLocalStorage = (newScores) => {
-    if (!user?.id) return;
+    if (!currentId) return;
+    
     try {
-      const storageKey = `jobMatchScores_${user.id}`;
-      localStorage.setItem(storageKey, JSON.stringify(newScores));
+      const { data, error } = await supabase
+        .from('candidate_job_scores')
+        .select('job_id, score, breakdown')
+        .eq('candidate_id', currentId);
+      if (error) throw error;
+      
+      const scoresMap: { [key: string]: { score: number; reasoning?: string; breakdown?: any } } = {};
+      data?.forEach(s => {
+        scoresMap[s.job_id] = { 
+          score: s.score, 
+          breakdown: s.breakdown,
+          reasoning: (s.breakdown as any)?.reasoning || (s.breakdown as any)?.geminiRaw 
+        };
+      });
+      setJobScores(scoresMap);
     } catch (error) {
-      console.error('Failed to save scores to local storage:', error);
+      console.error('Failed to fetch scores from DB:', error);
     }
   };
 
@@ -212,20 +221,22 @@ const JobListing = () => {
     } catch (error) {
       console.error('Error fetching jobs:', error);
       toast.error('Failed to load jobs');
-    } finally {
+} finally {
       setLoading(false);
     }
   };
 
   const analyseSingleJobScore = async (jobId: string) => {
-    if (!user?.candidate_id) {
-      toast.error("You must be a candidate to analyse.");
-      return;
-    }
-
-    setLoadingScores(prev => ({ ...prev, [jobId]: true }));
-
     try {
+      setLoadingScores(prev => ({ ...prev, [jobId]: true }));
+      
+      const currentCandidateId = user?.candidate_id;
+      
+      if (!currentCandidateId) {
+        toast.error("Candidate profile still loading. Please wait a moment.");
+        return;
+      }
+
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -235,23 +246,46 @@ const JobListing = () => {
         throw new Error("No auth session found");
       }
 
+
       const { data, error: functionError } = await supabase.functions.invoke('job-match-score', {
-        body: { candidateId: user.candidate_id, jobId }
+        body: { candidateId: currentCandidateId, jobId }
       });
 
       if (functionError) {
         console.error('API Error Response:', functionError);
         throw new Error(`Failed to fetch job match score: ${functionError.message || functionError}`);
       }
-      const newScores = {
-        ...jobScores,
-        [data.jobId]: typeof data.score === 'number' ? data.score : 0
-      };
+      // Ensure we extract structured data
+      const richData = data || { score: 0, reasoning: 'No analysis available' };
+      
+      // Save to Database
+      const { error: upsertError } = await supabase
+        .from('candidate_job_scores')
+        .upsert({
+          candidate_id: currentCandidateId,
+          job_id: jobId,
+          score: richData.score,
+          breakdown: {
+            ...richData.breakdown,
+            reasoning: richData.reasoning
+          }
+        }, { onConflict: 'candidate_id,job_id' });
 
-      setJobScores(newScores);
-      saveScoresToLocalStorage(newScores);
+      if (upsertError) {
+        console.error('Database Sync Error:', upsertError);
+        throw upsertError;
+      }
 
-      toast.success('Job match score calculated!');
+      setJobScores(prev => ({
+        ...prev,
+        [jobId]: {
+          score: richData.score,
+          reasoning: richData.reasoning,
+          breakdown: richData.breakdown
+        }
+      }));
+
+      toast.success('Job match analysis complete!');
     } catch (error) {
       console.error('Error fetching job match score:', error);
       toast.error('Failed to calculate job match score');
@@ -426,16 +460,39 @@ const JobListing = () => {
                           {job.experience_level}
                         </Badge>
                       )}
-                    </div>
-                    <div className="ml-4 flex flex-col gap-2 items-center">
-                      {user?.candidate_id && (
-                        <>
-                          <CircularScore
-                            score={jobScores[job.id] ?? 0}
+
+                      {/* AI Match Quality Card Integration */}
+                      {hasScore && (
+                        <div className="mt-6 pt-6 border-t border-border/50">
+                          <MatchQualityCard
+                            score={jobScores[job.id]?.score ?? 0}
+                            breakdown={jobScores[job.id]?.breakdown}
+                            reasoning={jobScores[job.id]?.reasoning}
                             loading={loadingScores[job.id]}
                           />
+                        </div>
+                      )}
+                    </div>
+                    <div className="ml-4 flex flex-col gap-2 items-center min-w-[140px]">
+                      {user?.role === 'candidate' && (
+                        <>
+                          {!hasScore ? (
+                            <div className="relative flex items-center justify-center w-14 h-14 bg-muted/20 rounded-full border-2 border-dashed border-muted">
+                              {loadingScores[job.id] ? (
+                                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                              ) : (
+                                <Star className="h-5 w-5 text-muted-foreground" />
+                              )}
+                            </div>
+                          ) : (
+                            <CircularScore
+                              score={jobScores[job.id]?.score ?? 0}
+                              loading={loadingScores[job.id]}
+                            />
+                          )}
+                          
                           <Button
-                            variant="secondary"
+                            variant={hasScore ? "outline" : "secondary"}
                             disabled={loadingScores[job.id]}
                             onClick={() => analyseSingleJobScore(job.id)}
                             className="w-full mt-2"
@@ -446,7 +503,7 @@ const JobListing = () => {
                                 Analysing...
                               </>
                             ) : (
-                              <>Analyse Score</>
+                              <>{hasScore ? 'Re-analyse' : 'Analyse Score'}</>
                             )}
                           </Button>
                         </>

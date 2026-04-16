@@ -7,7 +7,7 @@ import { Textarea } from '../ui/textarea';
 import { Badge } from '../ui/badge';
 import { Switch } from '../ui/switch';
 import { Checkbox } from '../ui/checkbox';
-import { User, MapPin, GraduationCap, Briefcase, Award, FileText, Mail, CheckCircle2, XCircle } from 'lucide-react';
+import { User, MapPin, GraduationCap, Briefcase, Award, FileText, Mail, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { useCandidate } from '@/hooks/useCandidate';
 import { FileUpload } from '../ui/file-upload';
 import { useAuth } from '@/contexts/AuthContext';
@@ -28,7 +28,7 @@ const availableSkills = [
 
 const CandidateProfile = () => {
   const { user } = useAuth();
-  const { profile, loading, updateProfile, uploadAndAutofillResume } = useCandidate();
+  const { profile, loading, updateProfile, uploadAndAutofillResume, enrichFromLinkedIn, refetch } = useCandidate();
   const [isLookingForJob, setIsLookingForJob] = useState(true);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -39,6 +39,8 @@ const CandidateProfile = () => {
   const [educationData, setEducationData] = useState('');
   const [experienceData, setExperienceData] = useState('');
   const [licenseData, setLicenseData] = useState({ type: '', number: '' });
+  const [linkedinUrl, setLinkedinUrl] = useState('');
+  const [isEnriching, setIsEnriching] = useState(false);
 
   useEffect(() => {
     if (profile) {
@@ -52,6 +54,7 @@ const CandidateProfile = () => {
       setExperienceData(profile.experience || '');
       setLicenseData({ type: profile.license_type || '', number: profile.license_number || '' });
       setSelectedSkills(profile.skills || []);
+      setLinkedinUrl(profile.linkedin_url || '');
       // setIsLookingForJob(profile.is_looking_for_job ?? true);
     }
   }, [profile, user]);
@@ -125,6 +128,26 @@ const CandidateProfile = () => {
   const handleUpdateLicense = async () =>
     updateProfile({ license_type: licenseData.type, license_number: licenseData.number });
 
+  const handleEnrichProfile = async () => {
+    if (!profile?.id) {
+      toast.error("Profile data not loaded yet. Please try refreshing.");
+      return;
+    }
+    if (!linkedinUrl) {
+      toast.error("Please enter a LinkedIn URL first.");
+      return;
+    }
+    try {
+      setIsEnriching(true);
+      await enrichFromLinkedIn(linkedinUrl);
+      refetch(); // Ensure UI is updated
+    } catch (error) {
+      console.error("Enrichment failed:", error);
+    } finally {
+      setIsEnriching(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -142,6 +165,126 @@ const CandidateProfile = () => {
         <h1 className="text-3xl font-bold text-foreground">My Profile</h1>
         <p className="text-muted-foreground mt-2">Update your details below</p>
       </div>
+
+      {/* LinkedIn Enrichment Card */}
+      <Card className="border-blue-200 bg-blue-50/30">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-blue-700">
+            <Award className="h-5 w-5" />
+            AI Profile Enrichment
+          </CardTitle>
+          <CardDescription>
+            Enrich your profile with automated seniority and industry analysis from your LinkedIn profile.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-4">
+            <div className="flex-1">
+              <Label htmlFor="linkedin-url">LinkedIn Profile URL</Label>
+              <Input
+                id="linkedin-url"
+                value={linkedinUrl}
+                onChange={(e) => setLinkedinUrl(e.target.value)}
+                placeholder="https://linkedin.com/in/username"
+                className="bg-white"
+              />
+            </div>
+            <div className="flex items-end">
+              <Button 
+                onClick={handleEnrichProfile} 
+                disabled={isEnriching || !linkedinUrl}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {isEnriching ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Enriching...
+                  </>
+                ) : (
+                  "Enrich Profile"
+                )}
+              </Button>
+            </div>
+          </div>
+          
+          {/* AI Insights & LinkedIn Data Section */}
+          {(profile?.seniority || profile?.domain_focus || profile?.headline) && (
+            <div className="mt-6 space-y-4 pt-4 border-t border-gray-100">
+              <div className="flex items-center gap-2 text-blue-800 mb-2">
+                < Award className="h-5 w-5" />
+                <h4 className="font-bold text-sm uppercase tracking-wider">AI Analysis & LinkedIn Insights</h4>
+              </div>
+
+              {/* Headline (New) */}
+              {profile.headline && (
+                <div className="p-3 bg-blue-50/50 rounded-lg border border-blue-100 text-center">
+                  <div className="text-lg font-bold text-blue-900 italic">
+                    "{profile.headline}"
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-3 bg-white rounded-lg border border-gray-100 shadow-sm">
+                  <Label className="text-[10px] text-muted-foreground uppercase font-bold">Estimated Seniority</Label>
+                  <div className="font-semibold text-blue-900 capitalize">
+                    {(() => {
+                      const val = profile.seniority;
+                      if (!val) return 'Analyzing...';
+                      if (typeof val === 'object') return (val as any).level || 'Junior';
+                      if (typeof val === 'string' && val.startsWith('{')) {
+                        try { return JSON.parse(val).candidate_level || 'Junior'; } catch { return val; }
+                      }
+                      return val;
+                    })()}
+                  </div>
+                </div>
+                <div className="p-3 bg-white rounded-lg border border-gray-100 shadow-sm">
+                  <Label className="text-[10px] text-muted-foreground uppercase font-bold">Domain Focus</Label>
+                  <div className="font-semibold text-blue-900">
+                    {(() => {
+                      const val = profile.domain_focus;
+                      if (!val) return 'Analyzing...';
+                      if (typeof val === 'object') return (val as any).niche || 'Full Stack';
+                      if (typeof val === 'string' && val.startsWith('{')) {
+                        try { return JSON.parse(val).domain_history?.[0] || 'Full Stack'; } catch { return val; }
+                      }
+                      return val;
+                    })()}
+                  </div>
+                </div>
+                <div className="col-span-1 md:col-span-2 p-3 bg-white rounded-lg border border-gray-100 shadow-sm">
+                  <Label className="text-[10px] text-muted-foreground uppercase font-bold">Career Trajectory</Label>
+                  <p className="text-sm text-gray-700 leading-relaxed">
+                    {(() => {
+                      const val = profile.career_trajectory;
+                      if (!val) return 'Awaiting analysis...';
+                      if (typeof val === 'object') return (val as any).summary || JSON.stringify(val);
+                      if (typeof val === 'string' && val.startsWith('{')) {
+                        try { 
+                          const p = JSON.parse(val);
+                          return p.summary || p.career_level || "Professional growth in technology.";
+                        } catch { return val; }
+                      }
+                      return val;
+                    })()}
+                  </p>
+                </div>
+
+                {/* About/Summary (New) */}
+                {(profile.about || (profile as any).linkedin_summary) && (
+                  <div className="col-span-1 md:col-span-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <Label className="text-[10px] text-muted-foreground uppercase font-bold">Professional Summary</Label>
+                    <p className="text-sm text-slate-800 line-clamp-3">
+                      {profile.about || (profile as any).linkedin_summary}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Job Seeking Status with Toggle */}
       <Card className="border-2">

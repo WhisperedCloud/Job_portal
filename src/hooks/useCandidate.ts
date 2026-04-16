@@ -16,6 +16,12 @@ export interface CandidateProfile {
   resume_url?: string;
   license_type?: string;
   license_number?: string;
+  seniority?: string;
+  domain_focus?: string;
+  career_trajectory?: string;
+  linkedin_url?: string;
+  headline?: string;
+  about?: string;
 }
 
 export const useCandidate = () => {
@@ -104,6 +110,12 @@ export const useCandidate = () => {
           resume_url: data.resume_url,
           license_type: data.license_type,
           license_number: data.license_number,
+          seniority: data.seniority,
+          domain_focus: data.domain_focus,
+          career_trajectory: data.career_trajectory,
+          linkedin_url: data.linkedin_url,
+          headline: data.headline,
+          about: data.about,
         });
       } else {
         setProfile(null);
@@ -234,6 +246,41 @@ export const useCandidate = () => {
       throw error;
     }
   };
+  
+  const enrichFromLinkedIn = async (linkedinUrl: string) => {
+    try {
+      const candidateId = profile?.id;
+      if (!candidateId) {
+        throw new Error("Candidate profile not fully loaded. Please refresh the page.");
+      }
+      
+      setLoading(true);
+      const { data, error } = await supabase.functions.invoke('enrich-profile', {
+        body: { candidateId, linkedinUrl }
+      });
+
+      if (error) throw error;
+      
+      console.log('--- ENRICHMENT DIAGNOSTICS ---');
+      if (data?.debug) {
+        console.log('API Status:', data.debug.apiStatus);
+        console.log('API Raw Response:', data.debug.apiResponse);
+        if (data.debug.apiError) console.error('API Error:', data.debug.apiError);
+      } else {
+        console.log('No debug info returned from API');
+      }
+      
+      toast.success('Profile enriched from LinkedIn!');
+      await fetchProfile(); 
+      return data;
+    } catch (error: any) {
+      console.error('LinkedIn enrichment failed:', error);
+      toast.error(`LinkedIn enrichment failed: ${error.message}`);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // --- Candidate statistics ---
   const fetchCandidateStats = async () => {
@@ -304,6 +351,7 @@ export const useCandidate = () => {
     updateProfile,
     uploadFile,
     uploadAndAutofillResume,
+    enrichFromLinkedIn,
     fetchCandidateStats,
     refetch: fetchProfile
   };
